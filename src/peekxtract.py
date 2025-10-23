@@ -17,6 +17,7 @@ import binascii
 import re
 import time
 import lzma
+import sys
 
 def format_size(bytes_size: int) -> str:
     if bytes_size < 1024:
@@ -104,18 +105,24 @@ def resolve_github_download_url(url: str) -> str:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
         try:
-            response = session.head(url, allow_redirects=True)
+            response = session.head(url, allow_redirects=True, timeout=10)
             resolved_url = response.url
             print(f"Resolved GitHub URL:")
             print(f"  Original: {url}")
             print(f"  Resolved: {resolved_url}")
-            test_response = session.get(resolved_url, headers={'Range': 'bytes=0-0'})
+            test_response = session.get(resolved_url, headers={'Range': 'bytes=0-0'}, timeout=10)
             if test_response.status_code == 206:
                 print("Resolved URL supports range requests!")
                 return resolved_url
             else:
                 print(f"Resolved URL doesn't support range requests (status: {test_response.status_code})")
                 return url
+        except requests.exceptions.Timeout:
+            print("Error: Connection timed out while resolving GitHub URL.")
+            return url
+        except requests.exceptions.ConnectionError:
+            print("Error: Failed to connect while resolving GitHub URL.")
+            return url
         except Exception as e:
             print(f"Failed to resolve GitHub URL: {e}")
             return url
@@ -179,11 +186,38 @@ class EnhancedRemoteZipReader:
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
+        # Early URL validation - fail fast on timeout or connection error
+        if not self._validate_url():
+            raise Exception("URL validation failed, please check your network or the URL and try again.")
         self.file_size = 0
         self.files_info = {}
         self.actual_url = None
         self.current_display_mapping = {}
         self._initialize()
+
+    def _validate_url(self, timeout=30) -> bool:
+        try:
+            print("\nChecking URL connectivity...")
+            response = self.session.head(self.url, allow_redirects=True, timeout=timeout)
+            if response.status_code >= 400:
+                print(f"Error: Server returned status code {response.status_code}")
+                return False
+            test_resp = self.session.get(self.url, headers={'Range': 'bytes=0-0'}, timeout=timeout)
+            if test_resp.status_code == 501:
+                print("Error: Server does not support HTTP Range requests (501).")
+                return False
+            if test_resp.status_code not in [200, 206]:
+                print(f"Warning: Range request returned status {test_resp.status_code}")
+            return True
+        except requests.exceptions.Timeout as e:
+            print(f"Error: Connection timed out. {e}")
+            return False
+        except requests.exceptions.ConnectionError as e:
+            print(f"Error: Failed to establish connection. {e}")
+            return False
+        except Exception as e:
+            print(f"Unexpected error during URL validation: {e}")
+            return False
 
     def _initialize(self):
         """Initialize by getting file size and checking range support"""
@@ -677,12 +711,16 @@ def main():
     # print(f"    - STORED (compression method 0)")
     # print("="*59)
     print()
-    
-    url = input("Enter the ZIP file URL: ").strip()
+
+    if len(sys.argv) > 1:
+        url = sys.argv[1].strip()
+        print(f"Using ZIP file URL from cli input:: {url}")
+    else:
+        url = input("Enter the ZIP file URL: ").strip()
     if not url:
         print("No URL provided. Exiting.")
         return
-    if not (url.startswith('http://') or url.startswith('https://')):
+    if not (url.startswith("http://") or url.startswith("https://")):
         print("Please provide a valid HTTP/HTTPS URL.")
         return
     
@@ -787,7 +825,7 @@ def main():
     except Exception as e:
         print(f"Error: {e}")
         if "501" not in str(e):
-            print("Please check your URL and internet connection.")
+            print("\nPlease check your URL and internet connection.\n")
 
 if __name__ == "__main__":
     main()
