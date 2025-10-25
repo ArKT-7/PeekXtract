@@ -74,3 +74,109 @@ jobs:
         with:
           name: PeekXtract-Linux-v${{ steps.version.outputs.VERSION }}
           path: dist/PeekXtract
+
+  create-release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Extract version from Python file
+        id: version
+        run: |
+          VERSION=$(grep "^__version__" src/peekxtract.py | cut -d'"' -f2)
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+      
+      - name: Get build date and time (UTC)
+        id: build_time
+        run: |
+          BUILD_DATE=$(date -u '+%d %B %Y')
+          BUILD_TIME=$(date -u '+%H:%M UTC')
+          echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_OUTPUT
+          echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_OUTPUT
+          echo "Built on: $BUILD_DATE at $BUILD_TIME"
+      
+      - name: Check if release already exists
+        id: check_release
+        run: |
+          if gh release view "v${{ steps.version.outputs.VERSION }}" &>/dev/null; then
+            echo "EXISTS=true" >> $GITHUB_OUTPUT
+            echo "Release v${{ steps.version.outputs.VERSION }} already exists, skipping..."
+          else
+            echo "EXISTS=false" >> $GITHUB_OUTPUT
+            echo "Release v${{ steps.version.outputs.VERSION }} does not exist, creating..."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Download Windows artifact
+        if: steps.check_release.outputs.EXISTS == 'false'
+        uses: actions/download-artifact@v4
+        with:
+          name: PeekXtract-Windows-v${{ steps.version.outputs.VERSION }}
+          path: ./release-windows
+      
+      - name: Download Linux artifact
+        if: steps.check_release.outputs.EXISTS == 'false'
+        uses: actions/download-artifact@v4
+        with:
+          name: PeekXtract-Linux-v${{ steps.version.outputs.VERSION }}
+          path: ./release-linux
+      
+      - name: Create ZIP files
+        if: steps.check_release.outputs.EXISTS == 'false'
+        run: |
+          cd release-windows
+          zip -9 PeekXtract-Windows-v${{ steps.version.outputs.VERSION }}.zip PeekXtract.exe
+          cd ..
+          
+          cd release-linux
+          chmod +x PeekXtract
+          zip -9 PeekXtract-Linux-v${{ steps.version.outputs.VERSION }}.zip PeekXtract
+          cd ..
+      
+      - name: Create Release
+        if: steps.check_release.outputs.EXISTS == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: PeekXtract v${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          body: |
+            ## ⚡ PeekXtract v${{ steps.version.outputs.VERSION }}
+            
+            - **Build Date:** ${{ steps.build_time.outputs.BUILD_DATE }}  
+            - **Build Time:** ${{ steps.build_time.outputs.BUILD_TIME }}
+            
+            ---
+            
+            ### 📦 Downloads
+            
+            - **Windows: [`PeekXtract.exe`](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.VERSION }}/PeekXtract.exe) or [`PeekXtract-Windows-v${{ steps.version.outputs.VERSION }}.zip`](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.VERSION }}/PeekXtract-Windows-v${{ steps.version.outputs.VERSION }}.zip)**
+            - **Linux: [`PeekXtract`](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.VERSION }}/PeekXtract) or [`PeekXtract-Linux-v${{ steps.version.outputs.VERSION }}.zip`](https://github.com/${{ github.repository }}/releases/download/v${{ steps.version.outputs.VERSION }}/PeekXtract-Linux-v${{ steps.version.outputs.VERSION }}.zip)**
+            
+            ---
+            
+            ### 🚀 Usage
+            
+            - **Windows `(Terminal/CMD)`:**
+            ```
+            PeekXtract.exe
+            ```
+            
+            - **Linux `(Terminal)`:**
+            ```
+            chmod +x PeekXtract && ./PeekXtract
+            ```
+          files: |
+            ./release-windows/PeekXtract.exe
+            ./release-windows/PeekXtract-Windows-v${{ steps.version.outputs.VERSION }}.zip
+            ./release-linux/PeekXtract
+            ./release-linux/PeekXtract-Linux-v${{ steps.version.outputs.VERSION }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
