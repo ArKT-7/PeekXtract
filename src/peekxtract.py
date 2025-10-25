@@ -2,7 +2,7 @@
 # Copyright (C) 2025-26 https://github.com/ArKT-7/PeekXtract
 #
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 
 import requests
 import struct
@@ -698,10 +698,10 @@ class EnhancedRemoteZipReader:
 def main():
     """Main interactive function"""
     print(" ")
-    print("="*59)
+    print("="*66)
     print(f" PeekXtract v{__version__} — Smart Remote ZIP Peeks & Selective Downloads")
-    print("   By °⊥⋊ɹ∀° (ArKT) | Telegram: @ArKT_7 | GitHub: ArKT-7")
-    print("="*59)
+    print("      By °⊥⋊ɹ∀° (ArKT) | Telegram: @ArKT_7 | GitHub: ArKT-7")
+    print("="*66)
     # print("\nFeatures:")
     # print("   File search/filter with regex support")
     # print("   Bulk download with range selection")
