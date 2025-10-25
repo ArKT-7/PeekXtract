@@ -9,6 +9,8 @@
 **What sets PeekXtract apart? Instead of downloading the entire archive, it lets you **peek inside ZIP files** and selectively extract just the files you actually need—saving you both bandwidth and time. 😎**
 
 ---
+## 📥 Latest Version: [Downloads Here!](https://github.com/ArKT-7/PeekXtract/releases/latest)
+---
 
 ## ✨ Features
 
