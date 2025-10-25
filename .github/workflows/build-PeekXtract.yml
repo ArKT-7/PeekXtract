@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'src/peekxtract.py'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 jobs:
@@ -12,6 +15,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      - name: Extract version from Python file
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep "^__version__" src/peekxtract.py | cut -d'"' -f2)
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building PeekXtract v$VERSION"
       
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -29,7 +40,7 @@ jobs:
       - name: Upload PeekXtract for Windows
         uses: actions/upload-artifact@v4
         with:
-          name: PeekXtract-Windows
+          name: PeekXtract-Windows-v${{ steps.version.outputs.VERSION }}
           path: dist/PeekXtract.exe
 
   build-linux:
@@ -37,6 +48,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      - name: Extract version from Python file
+        id: version
+        run: |
+          VERSION=$(grep "^__version__" src/peekxtract.py | cut -d'"' -f2)
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building PeekXtract v$VERSION"
       
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -54,5 +72,5 @@ jobs:
       - name: Upload PeekXtract for Linux
         uses: actions/upload-artifact@v4
         with:
-          name: PeekXtract-Linux
+          name: PeekXtract-Linux-v${{ steps.version.outputs.VERSION }}
           path: dist/PeekXtract

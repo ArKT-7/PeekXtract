@@ -2,6 +2,8 @@
 # Copyright (C) 2025-26 https://github.com/ArKT-7/PeekXtract
 #
 
+__version__ = "2.0.1"
+
 import requests
 import struct
 import zlib
@@ -697,7 +699,7 @@ def main():
     """Main interactive function"""
     print(" ")
     print("="*59)
-    print(" PeekXtract — Smart Remote ZIP Peeks & Selective Downloads")
+    print(f" PeekXtract v{__version__} — Smart Remote ZIP Peeks & Selective Downloads")
     print("   By °⊥⋊ɹ∀° (ArKT) | Telegram: @ArKT_7 | GitHub: ArKT-7")
     print("="*59)
     # print("\nFeatures:")
