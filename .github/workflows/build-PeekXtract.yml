@@ -32,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller requests
+          pip install pyinstaller requests selenium
       
       - name: Build PeekXtract executable
         run: pyinstaller --onefile --clean --optimize 2 --name PeekXtract src/peekxtract.py
@@ -64,7 +64,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller requests
+          pip install pyinstaller requests selenium
       
       - name: Build PeekXtract executable
         run: pyinstaller --onefile --clean --optimize 2 --name PeekXtract src/peekxtract.py

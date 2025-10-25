@@ -2,7 +2,7 @@
 # Copyright (C) 2025-26 https://github.com/ArKT-7/PeekXtract
 #
 
-__version__ = "2.0.2"
+__version__ = "2.0.3"
 
 import requests
 import struct
@@ -130,6 +130,116 @@ def resolve_github_download_url(url: str) -> str:
             return url
     return url
 
+def resolve_onedrive_url(url: str) -> str:
+    """Try to resolve OneDrive share URLs to direct download URLs"""
+    if not ('1drv.ms' in url.lower() or 'onedrive.live.com' in url.lower()):
+        return url
+
+    # Check if selenium is available
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.chrome.options import Options
+    except ImportError:
+        print("\nOneDrive link detected but selenium not installed.")
+        print("For OneDrive support: pip install selenium")
+        return url
+
+    print("\nDetected OneDrive URL - extracting direct download link...")
+
+    driver = None
+    try:
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-plugins')
+        chrome_options.add_argument('--no-default-browser-check')
+        chrome_options.add_argument('--no-first-run')
+        chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+        chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.set_page_load_timeout(30)
+        driver.get(url)
+
+        button_selectors = [
+            "button[aria-label*='Download']",
+            "button[title*='Download']",
+            "[data-icon-name='Download']",
+        ]
+
+        button = None
+        for selector in button_selectors:
+            start_time = time.time()
+            while time.time() - start_time < 30:
+                try:
+                    button = driver.find_element(By.CSS_SELECTOR, selector)
+                    if button.is_displayed() and button.is_enabled():
+                        break
+                except:
+                    pass
+                time.sleep(1)
+            if button and button.is_displayed():
+                break
+
+        if button:
+            driver.execute_cdp_cmd('Network.enable', {})
+            driver.execute_script("arguments[0].click();", button)
+            time.sleep(2)
+
+        logs = driver.get_log('performance')
+
+        for log_entry in logs:
+            try:
+                import json
+                message = json.loads(log_entry['message'])
+                params = message.get('message', {}).get('params', {})
+
+                if 'request' in params:
+                    direct_url = params['request'].get('url', '')
+                    if 'download.aspx' in direct_url and 'tempauth=' in direct_url:
+                        print("OneDrive direct URL extracted successfully!")
+                        print(f"Resolved OneDrive URL:")
+                        print(f"  {direct_url}")
+                        return direct_url
+
+                if 'redirectResponse' in params:
+                    direct_url = params['redirectResponse'].get('url', '')
+                    if 'download.aspx' in direct_url and 'tempauth=' in direct_url:
+                        print("OneDrive direct URL extracted successfully!")
+                        print(f"Resolved OneDrive URL:")
+                        print(f"  {direct_url}")
+                        return direct_url
+            except:
+                continue
+
+        current_url = driver.current_url
+        if 'download.aspx' in current_url:
+            print("OneDrive direct URL extracted from redirect!")
+            print(f"Resolved OneDrive URL:")
+            print(f"  {current_url}")
+            return current_url
+
+        print("Could not extract OneDrive direct URL, using original...")
+        return url
+
+    except Exception as e:
+        print(f"OneDrive resolution error: {e}")
+        print("Using original URL...")
+        return url
+
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except:
+                pass
+
+
 def get_filename_from_headers(url: str) -> str:
     """Get the actual filename from HTTP headers"""
     try:
@@ -183,7 +293,9 @@ def parse_range(range_str: str, max_val: int) -> List[int]:
 class EnhancedRemoteZipReader:
     def __init__(self, url: str):
         self.original_url = url
-        self.url = resolve_github_download_url(url)
+        # Try OneDrive resolution first, then GitHub
+        temp_url = resolve_onedrive_url(url)
+        self.url = resolve_github_download_url(temp_url)
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
