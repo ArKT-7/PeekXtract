@@ -64,16 +64,17 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller requests selenium
+          pip install nuitka requests selenium
       
       - name: Build PeekXtract executable
-        run: pyinstaller --onefile --clean --optimize 2 --name PeekXtract src/peekxtract.py
+        run: |
+          nuitka --standalone --static-libpython=yes --onefile --remove-output --show-progress -o PeekXtract src/peekxtract.py
       
       - name: Upload PeekXtract for Linux
         uses: actions/upload-artifact@v4
         with:
           name: PeekXtract-Linux-v${{ steps.version.outputs.VERSION }}
-          path: dist/PeekXtract
+          path: PeekXtract
 
   create-release:
     needs: [build-windows, build-linux]
