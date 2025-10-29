@@ -27,7 +27,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.13'
       
       - name: Install dependencies
         run: |
@@ -35,7 +35,7 @@ jobs:
           pip install pyinstaller requests selenium
       
       - name: Build PeekXtract executable
-        run: pyinstaller --onefile --clean --optimize 2 --name PeekXtract src/peekxtract.py
+        run: pyinstaller --onefile --clean --optimize 2 --noupx --name PeekXtract src/peekxtract.py
       
       - name: Upload PeekXtract for Windows
         uses: actions/upload-artifact@v4
@@ -59,7 +59,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.13'
       
       - name: Install dependencies
         run: |
