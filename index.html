@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PeekXtract | Peek zip online</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-color: #050505;
+            --card-bg: #0a0a0a;
+            --text-color: #e0e0e0;
+            --text-dim: #888;
+            --accent-green: #2ecc71;
+            --accent-blue: #00e1ff;
+            --accent-red: #e74c3c; 
+            --border-color: #333333;
+            --font-stack: 'JetBrains Mono', monospace; 
+            --radius: 16px;
+            --system-accent-color: #2ecc71;
+            --cursor-ball-color: #f39c12; 
+            --dim-color: rgba(46, 204, 113, 0.05);
+        }
+
+        [data-theme="light"] { --bg-color: #f4f4f5; --card-bg: #ffffff; --text-color: #18181b; --text-dim: #71717a; --border-color: #e4e4e7; --system-accent-color: #10b981; --dim-color: rgba(16, 185, 129, 0.1); --cursor-ball-color: #8b5cf6; }
+        [data-theme="sunset"] { --bg-color: #1a0b14; --card-bg: #2d1b24; --text-color: #fce7f3; --text-dim: #be185d; --border-color: #500724; --system-accent-color: #f59e0b; --dim-color: rgba(245, 158, 11, 0.1); --cursor-ball-color: #06b6d4; }
+        [data-theme="ocean"] { --bg-color: #0f172a; --card-bg: #1e293b; --text-color: #e2e8f0; --text-dim: #94a3b8; --border-color: #334155; --system-accent-color: #38bdf8; --dim-color: rgba(56, 189, 248, 0.1); --cursor-ball-color: #facc15; }
+        [data-theme="forest"] { --bg-color: #051a0d; --card-bg: #0c2b16; --text-color: #ecfdf5; --text-dim: #34d399; --border-color: #14532d; --system-accent-color: #4ade80; --dim-color: rgba(74, 222, 128, 0.1); --cursor-ball-color: #ff00ff; }
+        [data-theme="berry"] { --bg-color: #2e0216; --card-bg: #4a0424; --text-color: #ffe4e6; --text-dim: #fb7185; --border-color: #831843; --system-accent-color: #fb7185; --dim-color: rgba(251, 113, 133, 0.1); --cursor-ball-color: #a3e635; }
+        [data-theme="royal"] { --bg-color: #1e0b2e; --card-bg: #2e1045; --text-color: #f3e8ff; --text-dim: #c084fc; --border-color: #581c87; --system-accent-color: #fbbf24; --dim-color: rgba(251, 191, 36, 0.1); --cursor-ball-color: #d8b4fe; }
+        [data-theme="coffee"] { --bg-color: #271c19; --card-bg: #382823; --text-color: #e6dace; --text-dim: #a68b7c; --border-color: #5d4037; --system-accent-color: #d4a373; --dim-color: rgba(212, 163, 115, 0.1); --cursor-ball-color: #2dd4bf; }
+        [data-theme="midnight"] { --bg-color: #020617; --card-bg: #0f172a; --text-color: #e2e8f0; --text-dim: #64748b; --border-color: #1e293b; --system-accent-color: #6366f1; --dim-color: rgba(99, 102, 241, 0.1); --cursor-ball-color: #39ff14; }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-stack);
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            overflow-x: hidden;
+            transition: background-color 0.4s ease, color 0.4s ease; 
+        }
+
+        #custom-cursor {
+            display: none; 
+            position: fixed; top: 0; left: 0;
+            width: 21px; height: 21px;
+            border: 2.39px solid var(--cursor-ball-color); 
+            box-shadow: 0 0 5px var(--cursor-ball-color);
+            background-color: rgba(0, 0, 0, 0); 
+            backdrop-filter: blur(1px);
+            border-radius: 50%;
+            pointer-events: none; 
+            z-index: 999999;
+            transform-origin: center center;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            mix-blend-mode: normal; 
+            will-change: transform; 
+        }
+
+        @media (pointer: fine) {
+            * { cursor: none !important; }
+            #custom-cursor { display: block; }
+            body.hovering #custom-cursor {
+                box-shadow: 0 0 10px var(--cursor-ball-color);
+                background-color: var(--dim-color);
+            }
+        }
+
+        .overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); backdrop-filter: blur(5px);
+            z-index: 10000;
+            display: flex; justify-content: center; align-items: center;
+            flex-direction: column; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        .overlay.active { opacity: 1; pointer-events: all; }
+
+        .modal-card {
+            background: var(--card-bg); border: 1px solid var(--border-color);
+            padding: 40px; border-radius: 24px; width: 90%; max-width: 500px;
+            text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.4);
+            position: relative;
+        }
+
+        .palette-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
+        .palette-option {
+            height: 60px; border-radius: 12px; border: 2px solid transparent;
+            display: flex; overflow: hidden; position: relative; cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .palette-option:hover { transform: scale(1.05); }
+        .palette-option.active { border-color: var(--text-color); transform: scale(1.05); }
+        .p-col { flex: 1; height: 100%; }
+        
+        .container { width: 100%; max-width: 1000px; padding-bottom: 50px; position: relative; }
+
+        header {
+            display: flex; justify-content: space-between; align-items: flex-end;
+            margin-bottom: 2px;
+            border-bottom: 1px solid var(--border-color); padding-bottom: 20px;
+            transition: border-color 0.3s ease;
+        }
+        .brand { font-size: 2rem; font-weight: bold; letter-spacing: -2px; }
+        .header-right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+        .meta-info { font-size: 0.75rem; color: var(--text-dim); text-align: right; line-height: 1.4; }
+
+        .toolbar-container { display: flex; justify-content: flex-end; margin-bottom: 10px; margin-top: 0; }
+
+        .theme-btn {
+            background: transparent; border: 1px solid var(--border-color);
+            color: var(--text-color); font-family: var(--font-stack);
+            font-size: 0.7rem; padding: 6px 12px; cursor: pointer;
+            border-radius: 6px; transition: all 0.2s ease; font-weight: bold;
+        }
+        .theme-btn:hover { border-color: var(--system-accent-color); color: var(--system-accent-color); box-shadow: 0 0 10px var(--dim-color); }
+
+        .system-status { margin-bottom: 30px; position: relative; }
+        .label { font-size: 0.7rem; color: var(--text-dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }
+        
+        .status-bar {
+            background-color: var(--card-bg); border: 1px solid var(--border-color);
+            border-radius: var(--radius); padding: 15px 20px;
+            font-size: 0.9rem; color: var(--text-dim);
+            display: flex; justify-content: space-between; align-items: center;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); width: 100%; z-index: 500;
+        }
+        .status-bar.error { border-color: var(--accent-red); color: var(--accent-red); background: rgba(231, 76, 60, 0.05); box-shadow: 0 0 15px rgba(231, 76, 60, 0.1); }
+        .blink { animation: blinker 1s step-end infinite; color: var(--system-accent-color); }
+        .status-bar.error .blink { color: var(--accent-red); }
+        @keyframes blinker { 50% { opacity: 0; } }
+
+        .card {
+            background-color: var(--card-bg); border: 1px solid var(--border-color);
+            border-radius: var(--radius); padding: 25px; margin-bottom: 20px;
+            transition: all 0.3s ease; position: relative;
+        }
+        .card:hover { border-color: var(--system-accent-color); background-color: var(--dim-color); box-shadow: 0 5px 20px rgba(0,0,0,0.1); }
+        .card-header-row {
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 15px; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;
+        }
+        .card-title { font-size: 1.2rem; font-weight: bold; color: var(--text-color); }
+
+        .search-input {
+            background: rgba(125,125,125,0.05); border: 1px solid var(--border-color);
+            color: var(--text-color); font-family: var(--font-stack);
+            font-size: 0.9rem; padding: 12px 16px; width: 100%; border-radius: 6px;
+            transition: all 0.3s;
+        }
+        .search-input:focus { outline: none; border-color: var(--system-accent-color); background: rgba(125,125,125,0.1); }
+        .input-row { display: flex; gap: 10px; width: 100%; }
+
+        .options-row {
+            display: flex; flex-direction: column; gap: 10px; margin-top: 15px;
+            font-size: 0.8rem; color: var(--text-dim); border-top: 1px dashed var(--border-color);
+            padding-top: 15px;
+        }
+        .option-line { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
+        
+        .custom-chk { display: flex; align-items: center; cursor: pointer; user-select: none; }
+        .custom-chk input { position: absolute; opacity: 0; cursor: pointer; height: 0; width: 0; }
+        .checkmark {
+            height: 16px; width: 16px; background-color: transparent;
+            border: 1px solid var(--border-color); border-radius: 4px;
+            margin-right: 8px; display: inline-block; position: relative; transition: all 0.2s;
+        }
+        .custom-chk:hover .checkmark { border-color: var(--system-accent-color); }
+        .custom-chk input:checked ~ .checkmark { background-color: var(--system-accent-color); border-color: var(--system-accent-color); }
+        .custom-chk .checkmark:after {
+            content: ""; position: absolute; display: none; left: 4px; top: 1px; width: 4px; height: 8px;
+            border: solid #000; border-width: 0 2px 2px 0; transform: rotate(45deg);
+        }
+        .custom-chk input:checked ~ .checkmark:after { display: block; }
+
+        .custom-select-container {
+            position: relative; width: 200px; font-size: 0.75rem;
+            font-family: var(--font-stack);
+        }
+
+        .select-head {
+            background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);
+            color: var(--text-color); padding: 6px 10px; border-radius: 4px;
+            cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+        }
+        .select-head:hover { border-color: var(--system-accent-color); color: var(--system-accent-color); }
+
+        .select-list {
+            position: absolute; top: 105%; left: 0; width: 100%;
+            background: var(--card-bg); border: 1px solid var(--system-accent-color);
+            border-radius: 4px; z-index: 999; overflow: hidden;
+            display: flex; flex-direction: column;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+        }
+        
+        .select-option {
+            padding: 8px 10px; cursor: pointer; transition: background 0.2s;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .select-option:last-child { border-bottom: none; }
+        .select-option:hover { background: var(--system-accent-color); color: var(--card-bg); font-weight: bold; }
+
+        .proxy-alert-link {
+            color: var(--text-dim); text-decoration: none; font-size: 0.7rem;
+            border-bottom: 1px solid rgba(125,125,125,0.3); transition: all 0.2s;
+            display: inline-block; margin-top: 5px; opacity: 0.8;
+        }
+        .proxy-alert-link:hover { color: var(--accent-red); opacity: 1; border-bottom-color: var(--accent-red); }
+
+        .custom-proxy-input {
+            width: 100%; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color);
+            color: var(--system-accent-color); font-family: var(--font-stack); font-size: 0.75rem;
+            padding: 8px; border-radius: 4px; margin-top: 5px;
+        }
+        .hidden { display: none !important; }
+
+        .sys-btn {
+            background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);
+            color: var(--text-color); padding: 12px 20px; border-radius: 8px;
+            font-family: var(--font-stack); font-size: 0.8rem; font-weight: bold;
+            cursor: pointer; transition: all 0.2s; text-transform: uppercase; white-space: nowrap;
+        }
+        .sys-btn:hover { border-color: var(--system-accent-color); color: var(--system-accent-color); background: rgba(125,125,125,0.1); }
+        .sys-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .sys-btn.primary { border-color: var(--system-accent-color); color: var(--system-accent-color); }
+        .sys-btn.primary:hover { background: var(--system-accent-color); color: #000; }
+        .sys-btn.download-large {
+            width: 100%; font-size: 1rem; padding: 15px; margin-top: 15px;
+            background: var(--dim-color); border-color: var(--system-accent-color);
+        }
+
+        .file-table-container {
+            max-height: 500px; overflow-y: auto; padding-right: 5px;
+        }
+        
+        .file-table-container::-webkit-scrollbar { width: 12px; }
+        .file-table-container::-webkit-scrollbar-track { background: transparent; margin-block: 5px; }
+        .file-table-container::-webkit-scrollbar-thumb { background-color: var(--border-color); border-radius: 10px; border: 4px solid transparent; background-clip: content-box; }
+        .file-table-container::-webkit-scrollbar-thumb:hover { background-color: var(--system-accent-color); }
+
+        .file-table { 
+            width: 100%; 
+            table-layout: fixed; 
+            border-collapse: collapse; 
+            font-size: 0.85rem; 
+        }
+        
+        .file-table th {
+            text-align: left; padding: 10px; color: var(--text-dim);
+            border-bottom: 1px solid var(--border-color); 
+            position: sticky; top: 0; background: var(--card-bg); z-index: 2;
+            cursor: pointer; user-select: none; transition: color 0.2s;
+        }
+        
+        .file-table th:hover { 
+            color: var(--system-accent-color); 
+            background: linear-gradient(rgba(125,125,125,0.05), rgba(125,125,125,0.05)), var(--card-bg); 
+        }
+        
+        .sort-icon { font-size: 0.7rem; margin-left: 5px; opacity: 0.3; display: inline-block; }
+        .file-table th.active-sort { color: var(--system-accent-color); }
+        .file-table th.active-sort .sort-icon { opacity: 1; }
+
+        .file-table td {
+            padding: 8px 10px; border-bottom: 1px solid var(--border-color);
+            color: var(--text-color);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            cursor: pointer; vertical-align: middle;
+        }
+        .file-table tr:hover td { background: rgba(125,125,125,0.05); color: var(--system-accent-color); }
+
+        .col-id { width: 60px; }
+        .col-name { width: auto; min-width: 150px; }
+        .col-size { width: 100px; text-align: right; }
+        .col-action { width: 70px; text-align: center; cursor: default !important; }
+
+        @media (max-width: 600px) {
+            .file-table td, .file-table th { padding: 8px 4px; font-size: 0.75rem; }
+            .col-id { width: 15%; min-width: 35px; }
+            .col-size { width: 22%; min-width: 60px; text-align: right; }
+            .col-action { width: 15%; min-width: 40px; }
+            .col-name { width: 48%; min-width: 80px; }
+        }
+
+        .badge {
+            font-size: 0.7rem; padding: 4px 8px; border-radius: 4px;
+            border: 1px solid var(--border-color); display: inline-block;
+        }
+        .badge.green { border-color: var(--accent-green); color: var(--accent-green); }
+        .badge.dim { color: var(--text-dim); }
+
+        .mini-btn {
+            background: transparent; border: 1px solid var(--border-color);
+            color: var(--text-dim); border-radius: 4px; padding: 4px 8px;
+            cursor: pointer; font-family: var(--font-stack); font-weight: bold;
+            font-size: 0.9rem; transition: all 0.2s;
+        }
+        .mini-btn:hover { border-color: var(--system-accent-color); color: var(--system-accent-color); background: var(--dim-color); }
+        .mini-btn:disabled { opacity: 0.2; cursor: default; }
+
+        .detail-grid { display: grid; grid-template-columns: 100px 1fr; gap: 15px; text-align: left; margin-bottom: 20px; font-size: 0.9rem; }
+        .detail-label { color: var(--text-dim); font-weight: bold; }
+        .detail-val { color: var(--text-color); word-break: break-all; }
+
+        footer {
+            margin-top: 50px; padding-top: 20px; border-top: 1px solid var(--border-color);
+            font-size: 0.7rem; display: flex; justify-content: space-between; align-items: center;
+        }
+        .me-container { display: inline-flex; align-items: center; min-height: 1rem; }
+        .me-container::after {
+            content: '█'; margin-left: 5px; animation: blink 1s infinite;
+            color: var(--system-accent-color); font-size: 0.8rem; line-height: 1;
+        }
+        a.social-link { color: inherit; text-decoration: none; margin-left: 15px; transition: color 0.3s; }
+        a.social-link:hover { color: var(--system-accent-color); }
+
+        .progress-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); backdrop-filter: blur(5px);
+            display: flex; justify-content: center; align-items: center; z-index: 9999; display: none;
+        }
+        .progress-box {
+            background: var(--card-bg); border: 1px solid var(--system-accent-color);
+            padding: 30px; border-radius: 12px; text-align: center; min-width: 300px;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+            max-width: 90%;
+        }
+        .spinner {
+            border: 3px solid var(--card-bg); border-top: 3px solid var(--system-accent-color);
+            border-radius: 50%; width: 30px; height: 30px;
+            animation: spin 1s linear infinite; margin: 0 auto 15px auto;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .p-bar-track { width: 100%; height: 6px; background: var(--border-color); border-radius: 3px; margin-top: 15px; overflow: hidden; }
+        .p-bar-fill { height: 100%; width: 0%; background: var(--system-accent-color); transition: width 0.1s; }
+
+    </style>
+</head>
+<body>
+
+    <div id="custom-cursor"></div>
+
+    <div id="theme-overlay" class="overlay">
+        <div class="modal-card">
+            <h2 class="brand">VISUAL STYLE</h2>
+            <div style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 20px;">SELECT INTERFACE THEME</div>
+            <div class="palette-grid" id="themeGrid"></div>
+            <button class="sys-btn" onclick="toggleOverlay('theme-overlay', false)" style="width: 100%; margin-top: 25px;">CLOSE</button>
+        </div>
+    </div>
+
+    <div id="details-overlay" class="overlay">
+        <div class="modal-card" style="width: 95%; max-width: 600px; text-align: left;">
+            <div style="border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+                <h2 class="brand" style="font-size: 1.5rem;">FILE INSPECTOR</h2>
+                <button onclick="toggleOverlay('details-overlay', false)" style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:1.5rem;">&times;</button>
+            </div>
+            <div class="detail-grid">
+                <div class="detail-label">FILENAME</div>
+                <div class="detail-val" id="det-name">---</div>
+                <div class="detail-label">FULL PATH</div>
+                <div class="detail-val" id="det-path" style="font-family: monospace; color: var(--system-accent-color);">---</div>
+                <div class="detail-label">SIZE</div>
+                <div class="detail-val" id="det-size">---</div>
+                <div class="detail-label">CRC32</div>
+                <div class="detail-val" id="det-crc" style="font-family: monospace;">---</div>
+                <div class="detail-label">COMPRESSION</div>
+                <div class="detail-val" id="det-method">---</div>
+            </div>
+            <button id="det-download-btn" class="sys-btn download-large">INITIALIZE DOWNLOAD</button>
+        </div>
+    </div>
+
+    <div class="progress-overlay" id="progressModal">
+        <div class="progress-box">
+            <div class="spinner"></div>
+            <div id="progressText" style="color: var(--text-color); margin-bottom: 5px; font-weight: bold;">PROCESSING</div>
+            <div id="progressDetail" style="font-size:0.8rem; color: var(--text-dim);">Connecting...</div>
+            <div class="p-bar-track"><div class="p-bar-fill" id="progressBarFill"></div></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <header>
+            <div class="brand">PeekXtract.</div>
+            <div class="header-right">
+                <div class="meta-info">
+                    SYS.ARKT: ONLINE<br>
+                    <span id="date-display">...</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="toolbar-container">
+            <button id="theme-toggle" class="theme-btn" onclick="toggleOverlay('theme-overlay', true)">[ CHANGE THEME ]</button>
+        </div>
+
+        <div class="system-status">
+            <div class="label">07. SYSTEM STATUS</div>
+            <div class="status-bar" id="statusBar">
+                <span id="system-msg">> System Ready. Waiting for input...</span>
+                <span class="blink">█</span>
+            </div>
+        </div>
+
+        <div class="card" id="inputCard">
+            <div class="card-header-row">
+                <div class="card-title" style="border:none; padding:0; margin:0;">TARGET SELECTION</div>
+            </div>
+            <div class="input-row">
+                <input type="text" id="urlInput" class="search-input" placeholder="ENTER ZIP URL (e.g., https://example.com/file.zip)">
+                <button id="scanBtn" class="sys-btn primary" onclick="startScan()">INIT_SCAN</button>
+            </div>
+            
+            <div class="options-row">
+                <div class="option-line">
+                    <label class="custom-chk">
+                        <input type="checkbox" id="corsToggle" onchange="toggleProxyUI()">
+                        <span class="checkmark"></span>
+                        ENABLE PROXY
+                    </label>
+
+                    <div id="proxyModeDropdown" class="custom-select-container hidden">
+                        <div class="select-head" onclick="toggleCustomSelect()">
+                            <span id="proxySelectLabel">DEFAULT (Heroku)</span>
+                            <span>▼</span>
+                        </div>
+                        <div class="select-list hidden" id="proxySelectList">
+                            <div class="select-option" onclick="selectProxyMode('heroku')">DEFAULT (Heroku)</div>
+                            <div class="select-option" onclick="selectProxyMode('custom')">CUSTOM PROXY URL</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="customProxyContainer" class="hidden" style="width: 100%;">
+                    <input type="text" id="customProxyInput" class="custom-proxy-input" placeholder="Enter Custom Proxy (e.g., https://my-cors-proxy.com/)">
+                </div>
+
+                <div id="herokuAlertContainer" class="hidden">
+                    <a href="https://cors-anywhere.herokuapp.com/corsdemo" target="_blank" class="proxy-alert-link">
+                        [ Note: Click here to open Heroku & request temporary access ]
+                    </a>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="card hidden" id="resultsCard">
+            <div class="card-header-row">
+                <div class="card-title" style="border:none; padding:0; margin:0;">FILE DIRECTORY</div>
+                <div id="fileCountBadge" class="badge dim">0 FILES</div>
+            </div>
+            <div style="margin-bottom: 15px;">
+                <input type="text" id="fileSearch" class="search-input" placeholder="> FILTER FILES..." oninput="filterFiles()">
+            </div>
+            <div class="file-table-container">
+                <table class="file-table">
+                    <thead>
+                        <tr>
+                            <th class="col-id" onclick="sortTable('id')">ID <span id="sort-id" class="sort-icon"></span></th>
+                            <th class="col-name" onclick="sortTable('name')">FILENAME <span id="sort-name" class="sort-icon"></span></th>
+                            <th class="col-size" onclick="sortTable('size')">SIZE <span id="sort-size" class="sort-icon"></span></th>
+                            <th class="col-action" style="cursor:default;">DL</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fileTableBody"></tbody>
+                </table>
+            </div>
+            <div style="margin-top: 10px; font-size: 0.7rem; color: var(--text-dim); text-align: center;">
+                > CLICK HEADERS TO SORT | CLICK ROW FOR DETAILS | CLICK [⇩] FOR QUICK DOWNLOAD
+            </div>
+        </div>
+
+        <footer>
+            <div class="me-section">
+                <span class="me-label">SYS.ME ::</span>
+                <span id="me-display" class="me-container"></span>
+            </div>
+            <div>
+                <a href="https://github.com/ArKT-7" class="social-link">GITHUB</a>
+            </div>
+        </footer>
+    </div>
+
+<script>
+    const HEROKU_PROXY = "https://cors-anywhere.herokuapp.com/";
+    let currentProxyMode = 'heroku'; 
+
+    function toggleProxyUI() {
+        const isProxyEnabled = document.getElementById('corsToggle').checked;
+        const dropdown = document.getElementById('proxyModeDropdown');
+        const customInput = document.getElementById('customProxyContainer');
+        const herokuAlert = document.getElementById('herokuAlertContainer');
+
+        if (isProxyEnabled) {
+            dropdown.classList.remove('hidden');
+            updateProxyDisplay();
+        } else {
+            dropdown.classList.add('hidden');
+            customInput.classList.add('hidden');
+            herokuAlert.classList.add('hidden');
+        }
+    }
+
+    function toggleCustomSelect() {
+        document.getElementById('proxySelectList').classList.toggle('hidden');
+    }
+
+    function selectProxyMode(mode) {
+        currentProxyMode = mode;
+        document.getElementById('proxySelectLabel').textContent = mode === 'heroku' ? "DEFAULT (Heroku)" : "CUSTOM PROXY URL";
+        document.getElementById('proxySelectList').classList.add('hidden');
+        updateProxyDisplay();
+    }
+
+    function updateProxyDisplay() {
+        const customInput = document.getElementById('customProxyContainer');
+        const herokuAlert = document.getElementById('herokuAlertContainer');
+        
+        if (currentProxyMode === 'heroku') {
+            customInput.classList.add('hidden');
+            herokuAlert.classList.remove('hidden');
+        } else {
+            customInput.classList.remove('hidden');
+            herokuAlert.classList.add('hidden');
+        }
+    }
+
+    window.addEventListener('click', (e) => {
+        if (!e.target.closest('.custom-select-container')) {
+            document.getElementById('proxySelectList').classList.add('hidden');
+        }
+    });
+
+    function fixGithubUrl(url) {
+        try {
+            const blobPattern = /^https?:\/\/(?:www\.)?github\.com\/([^\/]+)\/([^\/]+)\/blob\/(.+)$/i;
+            if (blobPattern.test(url)) {
+                return url.replace(blobPattern, "https://raw.githubusercontent.com/$1/$2/$3");
+            }
+            return url;
+        } catch (e) {
+            return url;
+        }
+    }
+
+    function getTargetUrl(originalUrl) {
+        let finalUrl = fixGithubUrl(originalUrl);
+        const isProxyEnabled = document.getElementById('corsToggle').checked;
+        if (!isProxyEnabled) return finalUrl;
+
+        if (currentProxyMode === 'heroku') {
+            return HEROKU_PROXY + finalUrl;
+        } else {
+            let custom = document.getElementById('customProxyInput').value.trim();
+            if (!custom) return finalUrl;
+            if (!custom.endsWith('/')) custom += '/';
+            return custom + finalUrl;
+        }
+    }
+
+    function getRequestHeaders(rangeStart, rangeEnd) {
+        const headers = {};
+        
+        if (rangeStart !== undefined && rangeEnd !== undefined) {
+            headers['Range'] = `bytes=${rangeStart}-${rangeEnd}`;
+        } else if (rangeStart === '0-0') {
+             headers['Range'] = 'bytes=0-0';
+        }
+
+        const isProxyEnabled = document.getElementById('corsToggle').checked;
+        if (isProxyEnabled) {
+            headers['X-Requested-With'] = 'XMLHttpRequest';
+        }
+
+        return headers;
+    }
+
+    const crcTable = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        crcTable[i] = c;
+    }
+
+    function crc32(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let crc = -1; 
+        for (let i = 0; i < bytes.length; i++) {
+            crc = (crc >>> 8) ^ crcTable[(crc ^ bytes[i]) & 0xFF];
+        }
+        return (crc ^ -1) >>> 0; 
+    }
+
+    const THEMES = [
+        { id: 'dark', name: 'Cyber Dark', colors: ['#050505', '#2ecc71'] },
+        { id: 'light', name: 'Clean Light', colors: ['#ffffff', '#10b981'] },
+        { id: 'sunset', name: 'Sunset Vibe', colors: ['#2d1b24', '#f59e0b'] },
+        { id: 'ocean', name: 'Deep Ocean', colors: ['#0f172a', '#38bdf8'] },
+        { id: 'forest', name: 'Neon Forest', colors: ['#051a0d', '#4ade80'] },
+        { id: 'berry', name: 'Wild Berry', colors: ['#4a0424', '#fb7185'] },
+        { id: 'royal', name: 'Royal Gold', colors: ['#1e0b2e', '#fbbf24'] },
+        { id: 'coffee', name: 'Dark Roast', colors: ['#271c19', '#d4a373'] },
+        { id: 'midnight', name: 'Midnight', colors: ['#020617', '#6366f1'] },
+    ];
+
+    function applyTheme(themeId) {
+        document.documentElement.setAttribute('data-theme', themeId);
+        localStorage.setItem('peek_theme', themeId);
+        const options = document.querySelectorAll('.palette-option');
+        options.forEach(el => el.classList.toggle('active', el.dataset.theme === themeId));
+        const btn = document.getElementById('theme-toggle');
+        const current = THEMES.find(t => t.id === themeId);
+        if(btn && current) btn.textContent = `[THEME: ${current.name.toUpperCase()}]`;
+    }
+
+    function generateThemeGrid() {
+        const grid = document.getElementById('themeGrid');
+        grid.innerHTML = '';
+        THEMES.forEach(t => {
+            const div = document.createElement('div');
+            div.className = 'palette-option';
+            div.dataset.theme = t.id;
+            div.onclick = () => applyTheme(t.id);
+            div.innerHTML = `
+                <div class="p-col" style="background:${t.colors[0]}"></div>
+                <div class="p-col" style="background:${t.colors[1]}"></div>
+                <div style="position:absolute; bottom:5px; left:0; width:100%; text-align:center; font-size:0.6rem; color:#fff; text-shadow:0 1px 2px #000; font-weight:bold;">${t.name.toUpperCase()}</div>
+            `;
+            grid.appendChild(div);
+        });
+    }
+
+    function toggleOverlay(id, show) {
+        const el = document.getElementById(id);
+        if(show) el.classList.add('active'); else el.classList.remove('active');
+    }
+
+    const EOCD_SIG = 0x06054b50;
+    const CD_SIG = 0x02014b50;
+    const LFH_SIG = 0x04034b50;
+    let CURRENT_URL = "";
+    let FILE_LIST = [];
+    let sortState = { key: 'id', dir: 'asc' };
+
+    function setSystemMsg(msg, isError = false) {
+        const el = document.getElementById('system-msg');
+        const bar = document.getElementById('statusBar');
+        el.textContent = "> " + msg;
+        if(isError) {
+            bar.classList.add('error');
+            setTimeout(() => bar.classList.remove('error'), 3000);
+        } else {
+            bar.classList.remove('error');
+        }
+    }
+
+    function formatSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    async function fetchBytes(url, start, end) {
+        const target = getTargetUrl(url); 
+        const response = await fetch(target, { 
+            headers: getRequestHeaders(start, end)
+        });
+        if (!response.ok && response.status !== 206) throw new Error(`HTTP ${response.status}`);
+        return await response.arrayBuffer();
+    }
+
+    async function fetchBytesWithProgress(url, start, end, onProgress) {
+        const target = getTargetUrl(url);
+        const response = await fetch(target, { 
+            headers: getRequestHeaders(start, end)
+        });
+        if (!response.ok && response.status !== 206) throw new Error(`HTTP ${response.status}`);
+        
+        const reader = response.body.getReader();
+        const total = end - start + 1;
+        let received = 0;
+        let chunks = [];
+        
+        while(true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            received += value.length;
+            if(onProgress) onProgress(received, total);
+        }
+        
+        let all = new Uint8Array(received);
+        let pos = 0;
+        for(let chunk of chunks) {
+            all.set(chunk, pos);
+            pos += chunk.length;
+        }
+        return all.buffer;
+    }
+
+    async function resolveUrlAndSize(url) {
+        const fixedUrl = fixGithubUrl(url);
+        const target = getTargetUrl(fixedUrl);
+        
+        setSystemMsg(`Connecting to ${target}...`);
+
+        try {
+            const headers = getRequestHeaders();
+            const response = await fetch(target, { method: 'HEAD', headers: headers });
+            
+            if (response.status === 404) throw new Error("404: File Not Found.");
+            if (response.status === 403) throw new Error("403: Access Forbidden.");
+        } catch (e) {
+            console.warn("HEAD request failed or blocked, proceeding to Range test...", e);
+        }
+
+        try {
+            const response = await fetch(target, { 
+                headers: getRequestHeaders('0-0') 
+            });
+            
+            if (response.status === 404) throw new Error("404: File Not Found.");
+            if (response.status === 403) throw new Error("403: Access Forbidden (CORS or Permissions).");
+            
+            if (response.status === 200) {
+                throw new Error("Server returned 200 OK. Range Requests NOT supported by this server.");
+            }
+            
+            if (response.status !== 206) {
+                throw new Error(`Unexpected HTTP Status: ${response.status}.`);
+            }
+
+            let size = 0;
+            const cr = response.headers.get('content-range');
+            if (cr) {
+                size = parseInt(cr.split('/')[1]);
+            } else if (response.headers.get('content-length')) {
+                size = parseInt(response.headers.get('content-length'));
+            }
+
+            if (!size || isNaN(size)) throw new Error("Could not determine file size.");
+            
+            return { url: fixedUrl, size: size };
+
+        } catch (e) {
+            if (e.name === 'TypeError' && e.message === 'Failed to fetch') {
+                throw new Error("Connection Failed. Try enabling the Proxy.");
+            }
+            throw e; 
+        }
+    }
+
+    async function startScan() {
+        const inputUrl = document.getElementById('urlInput').value.trim();
+        if (!inputUrl) { setSystemMsg("ERROR: NO URL PROVIDED", true); return; }
+        try {
+            document.getElementById('scanBtn').disabled = true;
+            document.getElementById('resultsCard').classList.add('hidden');
+            FILE_LIST = [];
+            
+            const { url, size } = await resolveUrlAndSize(inputUrl);
+            CURRENT_URL = url;
+            
+            setSystemMsg(`File Size: ${formatSize(size)}. Finding Directory...`);
+
+            const searchSize = Math.min(65536, size);
+            const buffer = await fetchBytes(url, size - searchSize, size - 1);
+            const view = new DataView(buffer);
+            let eocdOffset = -1;
+            for (let i = view.byteLength - 22; i >= 0; i--) {
+                if (view.getUint32(i, true) === EOCD_SIG) { eocdOffset = i; break; }
+            }
+            if (eocdOffset === -1) throw new Error("Invalid ZIP format (EOCD Signature missing) / Still Try with Proxy.");
+
+            const cdSize = view.getUint32(eocdOffset + 12, true);
+            const cdOffset = view.getUint32(eocdOffset + 16, true);
+            setSystemMsg(`Reading Central Directory...`);
+            const cdBuffer = await fetchBytes(url, cdOffset, cdOffset + cdSize - 1);
+            const cdView = new DataView(cdBuffer);
+            let offset = 0, index = 1;
+            
+            while (offset < cdView.byteLength) {
+                if (offset + 46 > cdView.byteLength) break;
+                if (cdView.getUint32(offset, true) !== CD_SIG) break;
+                const method = cdView.getUint16(offset + 10, true);
+                const compSize = cdView.getUint32(offset + 20, true);
+                const uncompSize = cdView.getUint32(offset + 24, true);
+                const nameLen = cdView.getUint16(offset + 28, true);
+                const extraLen = cdView.getUint16(offset + 30, true);
+                const commentLen = cdView.getUint16(offset + 32, true);
+                const localOffset = cdView.getUint32(offset + 42, true);
+                const crc = cdView.getUint32(offset + 16, true);
+                const name = new TextDecoder().decode(new Uint8Array(cdBuffer, offset + 46, nameLen));
+                
+                if (uncompSize > 0 && !name.endsWith('/')) {
+                    FILE_LIST.push({ id: index++, name, size: uncompSize, compSize, method, localOffset, crc });
+                }
+                offset += 46 + nameLen + extraLen + commentLen;
+            }
+            renderFiles(FILE_LIST);
+            document.getElementById('resultsCard').classList.remove('hidden');
+            setSystemMsg(`Scan Complete. Found ${FILE_LIST.length} files.`);
+            document.getElementById('fileCountBadge').textContent = `${FILE_LIST.length} FILES`;
+        } catch (e) {
+            setSystemMsg(`ERROR: ${e.message}`, true);
+        } finally {
+            document.getElementById('scanBtn').disabled = false;
+        }
+    }
+
+    function sortTable(key) {
+        if (sortState.key === key) {
+            sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortState.key = key;
+            sortState.dir = 'asc';
+        }
+        
+        ['id', 'name', 'size'].forEach(k => {
+            const icon = document.getElementById(`sort-${k}`);
+            const th = icon.parentElement;
+            th.classList.remove('active-sort');
+            icon.textContent = '';
+            if(k === sortState.key) {
+                th.classList.add('active-sort');
+                icon.textContent = sortState.dir === 'asc' ? '▲' : '▼';
+            }
+        });
+
+        FILE_LIST.sort((a, b) => {
+            let valA = a[key];
+            let valB = b[key];
+            if (key === 'name') { valA = valA.toLowerCase(); valB = valB.toLowerCase(); }
+            if (valA < valB) return sortState.dir === 'asc' ? -1 : 1;
+            if (valA > valB) return sortState.dir === 'asc' ? 1 : -1;
+            return 0;
+        });
+        filterFiles();
+    }
+
+    function filterFiles() {
+        const term = document.getElementById('fileSearch').value.toLowerCase();
+        const filtered = FILE_LIST.filter(f => f.name.toLowerCase().includes(term));
+        renderFiles(filtered);
+    }
+
+    function renderFiles(list) {
+        const tbody = document.getElementById('fileTableBody');
+        tbody.innerHTML = list.map(f => {
+            const isSupported = f.method === 0 || f.method === 8;
+            return `
+            <tr onclick="openDetails(${f.id})">
+                <td class="col-id">#${String(f.id).padStart(3, '0')}</td>
+                <td class="col-name" title="${f.name}">${f.name}</td>
+                <td class="col-size">${formatSize(f.size)}</td>
+                <td class="col-action">
+                    <button class="mini-btn" onclick="event.stopPropagation(); downloadFile(${f.id})" ${!isSupported ? 'disabled' : ''}>⇩</button>
+                </td>
+            </tr>
+            `;
+        }).join('');
+    }
+
+    function openDetails(id) {
+        const file = FILE_LIST.find(f => f.id === id);
+        if (!file) return;
+        document.getElementById('det-name').textContent = file.name.split('/').pop();
+        document.getElementById('det-path').textContent = file.name;
+        document.getElementById('det-size').textContent = formatSize(file.size);
+        document.getElementById('det-crc').textContent = '0x' + (file.crc >>> 0).toString(16).toUpperCase();
+        document.getElementById('det-method').textContent = file.method === 0 ? "STORED" : (file.method === 8 ? "DEFLATE" : `UNK (${file.method})`);
+        const btn = document.getElementById('det-download-btn');
+        const isSupported = file.method === 0 || file.method === 8;
+        btn.disabled = !isSupported;
+        btn.onclick = () => downloadFile(id);
+        btn.textContent = isSupported ? "INITIALIZE DOWNLOAD" : "METHOD NOT SUPPORTED";
+        toggleOverlay('details-overlay', true);
+    }
+
+    async function downloadFile(id) {
+        const file = FILE_LIST.find(f => f.id === id);
+        if (!file) return;
+        toggleOverlay('details-overlay', false);
+        const modal = document.getElementById('progressModal');
+        const pText = document.getElementById('progressText');
+        const pDet = document.getElementById('progressDetail');
+        const pFill = document.getElementById('progressBarFill');
+        
+        pFill.style.width = '0%';
+        
+        try {
+            modal.style.display = 'flex';
+            pText.innerHTML = `DOWNLOADING<br><span style="font-size:0.8rem; color:var(--system-accent-color); font-weight:normal;">${file.name.split('/').pop()}</span>`;
+            pDet.innerText = "Reading File Header...";
+
+            const headerBuffer = await fetchBytes(CURRENT_URL, file.localOffset, file.localOffset + 29);
+            const view = new DataView(headerBuffer);
+            if (view.getUint32(0, true) !== LFH_SIG) throw new Error("Header Sync Error");
+            const nameLen = view.getUint16(26, true), extraLen = view.getUint16(28, true);
+            const dataStart = file.localOffset + 30 + nameLen + extraLen;
+            const dataEnd = dataStart + file.compSize - 1;
+
+            pDet.innerText = `Starting...`;
+
+            const compressedData = await fetchBytesWithProgress(CURRENT_URL, dataStart, dataEnd, (loaded, total) => {
+                const pct = Math.round((loaded / total) * 100);
+                pFill.style.width = `${pct}%`;
+                const loadedStr = (loaded / (1024*1024)).toFixed(2);
+                const totalStr = (total / (1024*1024)).toFixed(2);
+                pDet.innerText = `${pct}% | ${loadedStr} MB / ${totalStr} MB`;
+            });
+
+            let finalData;
+            if (file.method === 0) finalData = compressedData;
+            else if (file.method === 8) {
+                pText.innerHTML = `DECOMPRESSING<br><span style="font-size:0.8rem; color:var(--system-accent-color); font-weight:normal;">${file.name.split('/').pop()}</span>`;
+                pDet.innerText = "Inflating Stream...";
+                pFill.style.width = '100%';
+                const blob = new Blob([compressedData]);
+                const ds = new DecompressionStream("deflate-raw");
+                const stream = blob.stream().pipeThrough(ds);
+                finalData = await new Response(stream).arrayBuffer();
+            }
+
+            pText.innerHTML = `VERIFYING<br><span style="font-size:0.8rem; color:var(--system-accent-color); font-weight:normal;">CRC32 CHECKSUM</span>`;
+            pDet.innerText = "Calculating Hash...";
+            const calculatedCrc = crc32(finalData);
+            if (calculatedCrc !== file.crc) {
+                throw new Error(`Integrity Check Failed!\nExpected: 0x${(file.crc>>>0).toString(16)}\nCalculated: 0x${(calculatedCrc>>>0).toString(16)}`);
+            }
+
+            pText.innerText = "SAVING";
+            pDet.innerText = "Writing to disk...";
+            const saveBlob = new Blob([finalData]);
+            const url = URL.createObjectURL(saveBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = file.name.split('/').pop();
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            modal.style.display = 'none';
+            setSystemMsg(`Download Complete: ${file.name}`);
+        } catch (e) {
+            console.error(e);
+            modal.style.display = 'none';
+            setSystemMsg(`DL ERROR: ${e.message}`, true);
+            alert(`ERROR: ${e.message}`);
+        }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        generateThemeGrid();
+        applyTheme(localStorage.getItem('peek_theme') || 'dark');
+        const now = new Date();
+        document.getElementById('date-display').textContent = now.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour:'2-digit', minute:'2-digit' }).toUpperCase();
+    });
+
+    const cursor = document.getElementById('custom-cursor');
+    let mouseX = 0, mouseY = 0, cursorX = 0, cursorY = 0;
+    const speed = 0.15;
+    window.addEventListener('mousemove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
+    
+    document.body.addEventListener('mouseover', (e) => {
+        if (e.target.closest('button, .card, input, .upload-area, .human-item, .toggle-chip, tr, .mini-btn, th, .select-head, .select-option, .custom-chk')) {
+            document.body.classList.add('hovering');
+        } else {
+            document.body.classList.remove('hovering');
+        }
+    });
+
+    function animateCursor() {
+        cursorX += (mouseX - cursorX) * speed;
+        cursorY += (mouseY - cursorY) * speed;
+        const dist = Math.sqrt(Math.pow(mouseX - cursorX, 2) + Math.pow(mouseY - cursorY, 2));
+        const scale = Math.min(dist / 100, 0.4);
+        const angle = Math.atan2(mouseY - cursorY, mouseX - cursorX) * 180 / Math.PI;
+        cursor.style.transform = `translate3d(${cursorX}px, ${cursorY}px, 0) translate(-50%, -50%) rotate(${angle}deg) scale(${1 + scale}, ${1 - scale * 0.5})`;
+        requestAnimationFrame(animateCursor);
+    }
+    animateCursor();
+
+    const Me = ['PeekXtract By ArKT', 'Web Version v1.6', 'ArKT-7', 'ArKT_7'];
+    const MeContainer = document.getElementById('me-display');
+    async function typeWriterLoop() {
+        while (true) {
+            for (let name of Me) {
+                MeContainer.textContent = "";
+                for (let char of name) { MeContainer.textContent += char; await new Promise(r => setTimeout(r, 50)); }
+                await new Promise(r => setTimeout(r, 3000));
+            }
+        }
+    }
+    typeWriterLoop();
+</script>
+</body>
+</html>
