@@ -542,6 +542,12 @@
         }
     });
 
+    document.getElementById('urlInput').addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') {
+            document.getElementById('scanBtn').click();
+        }
+    });
+
     function fixGithubUrl(url) {
         try {
             const blobPattern = /^https?:\/\/(?:www\.)?github\.com\/([^\/]+)\/([^\/]+)\/blob\/(.+)$/i;
@@ -649,9 +655,12 @@
     const EOCD_SIG = 0x06054b50;
     const CD_SIG = 0x02014b50;
     const LFH_SIG = 0x04034b50;
+    const ZIP64_EOCD_LOCATOR_SIG = 0x07064b50;
+    const ZIP64_EOCD_SIG = 0x06064b50;
     let CURRENT_URL = "";
     let FILE_LIST = [];
     let sortState = { key: 'id', dir: 'asc' };
+    let fileSize = 0;
 
     function setSystemMsg(msg, isError = false) {
         const el = document.getElementById('system-msg');
@@ -740,7 +749,7 @@
             }
             
             if (response.status !== 206) {
-                throw new Error(`Unexpected HTTP Status: ${response.status}.`);
+                throw new Error(`Unexpected HTTP Status: ${response.status}. Range requests likely failed.`);
             }
 
             let size = 0;
@@ -757,7 +766,7 @@
 
         } catch (e) {
             if (e.name === 'TypeError' && e.message === 'Failed to fetch') {
-                throw new Error("Connection Failed. Try enabling the Proxy.");
+                throw new Error("Connection Failed. Possible CORS block or Network Error, Try enabling the Proxy.");
             }
             throw e; 
         }
@@ -774,6 +783,7 @@
             const { url, size } = await resolveUrlAndSize(inputUrl);
             CURRENT_URL = url;
             
+            fileSize = size;
             setSystemMsg(`File Size: ${formatSize(size)}. Finding Directory...`);
 
             const searchSize = Math.min(65536, size);
@@ -785,8 +795,40 @@
             }
             if (eocdOffset === -1) throw new Error("Invalid ZIP format (EOCD Signature missing) / Still Try with Proxy.");
 
-            const cdSize = view.getUint32(eocdOffset + 12, true);
-            const cdOffset = view.getUint32(eocdOffset + 16, true);
+            let cdSize = view.getUint32(eocdOffset + 12, true);
+            let cdOffset = view.getUint32(eocdOffset + 16, true);
+            
+            if (cdOffset === 0xFFFFFFFF || cdSize === 0xFFFFFFFF) {
+                console.log("ZIP64 indicators found in EOCD. Searching for ZIP64 Locator...");
+
+                let zip64LocatorOffset = eocdOffset - 20;
+                let zip64EocdOffset = -1;
+
+                if (zip64LocatorOffset >= 0 && view.getUint32(zip64LocatorOffset, true) === ZIP64_EOCD_LOCATOR_SIG) {
+                    const low = view.getUint32(zip64LocatorOffset + 8, true);
+                    const high = view.getUint32(zip64LocatorOffset + 12, true);
+                    zip64EocdOffset = (high * 4294967296) + low;
+                    console.log("Found ZIP64 Locator. EOCD Record is at:", zip64EocdOffset);
+                } else {
+                    console.warn("ZIP64 indicators present but Locator not found at expected position.");
+                }
+
+                if (zip64EocdOffset !== -1) {
+                    const zip64RecordBuffer = await fetchBytes(url, zip64EocdOffset, zip64EocdOffset + 55);
+                    const zip64View = new DataView(zip64RecordBuffer);
+                    
+                    if (zip64View.getUint32(0, true) !== ZIP64_EOCD_SIG) {
+                        throw new Error("ZIP64 EOCD Record signature mismatch.");
+                    }
+
+                    const sizeBig = zip64View.getBigUint64(40, true);
+                    const offsetBig = zip64View.getBigUint64(48, true);
+                    cdSize = Number(sizeBig);
+                    cdOffset = Number(offsetBig);
+                    console.log(`ZIP64 CD Size: ${cdSize}, Offset: ${cdOffset}`);
+                }
+            }
+
             setSystemMsg(`Reading Central Directory...`);
             const cdBuffer = await fetchBytes(url, cdOffset, cdOffset + cdSize - 1);
             const cdView = new DataView(cdBuffer);
@@ -794,7 +836,8 @@
             
             while (offset < cdView.byteLength) {
                 if (offset + 46 > cdView.byteLength) break;
-                if (cdView.getUint32(offset, true) !== CD_SIG) break;
+                const sig = cdView.getUint32(offset, true);
+                if (sig !== CD_SIG) break;
                 const method = cdView.getUint16(offset + 10, true);
                 const compSize = cdView.getUint32(offset + 20, true);
                 const uncompSize = cdView.getUint32(offset + 24, true);
@@ -805,8 +848,55 @@
                 const crc = cdView.getUint32(offset + 16, true);
                 const name = new TextDecoder().decode(new Uint8Array(cdBuffer, offset + 46, nameLen));
                 
-                if (uncompSize > 0 && !name.endsWith('/')) {
-                    FILE_LIST.push({ id: index++, name, size: uncompSize, compSize, method, localOffset, crc });
+                let finalCompSize = compSize;
+                let finalUncompSize = uncompSize;
+                let finalLocalOffset = localOffset;
+
+                if (extraLen > 0) {
+                    const extraDataStart = offset + 46 + nameLen;
+                    const extraData = new Uint8Array(cdBuffer, extraDataStart, extraLen);
+                    const extraView = new DataView(cdBuffer, extraDataStart, extraLen);
+                    
+                    let extraOff = 0;
+                    while (extraOff + 4 <= extraLen) {
+                        const headerId = extraView.getUint16(extraOff, true);
+                        const dataSize = extraView.getUint16(extraOff + 2, true);
+                        
+                        if (headerId === 0x0001) {
+                            let dataOff = extraOff + 4;
+                            if (uncompSize === 0xFFFFFFFF) {
+                                if (dataOff + 8 <= extraLen + extraOff) {
+                                    finalUncompSize = Number(extraView.getBigUint64(dataOff, true));
+                                    dataOff += 8;
+                                }
+                            }
+                            if (compSize === 0xFFFFFFFF) {
+                                if (dataOff + 8 <= extraLen + extraOff) {
+                                    finalCompSize = Number(extraView.getBigUint64(dataOff, true));
+                                    dataOff += 8;
+                                }
+                            }
+                            if (localOffset === 0xFFFFFFFF) {
+                                if (dataOff + 8 <= extraLen + extraOff) {
+                                    finalLocalOffset = Number(extraView.getBigUint64(dataOff, true));
+                                    dataOff += 8;
+                                }
+                            }
+                        }
+                        extraOff += 4 + dataSize;
+                    }
+                }
+
+                if (finalUncompSize > 0 && !name.endsWith('/')) {
+                    FILE_LIST.push({ 
+                        id: index++, 
+                        name, 
+                        size: finalUncompSize, 
+                        compSize: finalCompSize, 
+                        method, 
+                        localOffset: finalLocalOffset, 
+                        crc 
+                    });
                 }
                 offset += 46 + nameLen + extraLen + commentLen;
             }
@@ -906,10 +996,17 @@
             pText.innerHTML = `DOWNLOADING<br><span style="font-size:0.8rem; color:var(--system-accent-color); font-weight:normal;">${file.name.split('/').pop()}</span>`;
             pDet.innerText = "Reading File Header...";
 
-            const headerBuffer = await fetchBytes(CURRENT_URL, file.localOffset, file.localOffset + 29);
+            const headerBuffer = await fetchBytes(CURRENT_URL, file.localOffset, file.localOffset + 255);
             const view = new DataView(headerBuffer);
             if (view.getUint32(0, true) !== LFH_SIG) throw new Error("Header Sync Error");
-            const nameLen = view.getUint16(26, true), extraLen = view.getUint16(28, true);
+            const nameLen = view.getUint16(26, true);
+            const extraLen = view.getUint16(28, true);
+            let variableData;
+            if (30 + nameLen + extraLen > headerBuffer.byteLength) {
+                 variableData = await fetchBytes(CURRENT_URL, file.localOffset + 30, file.localOffset + 30 + nameLen + extraLen);
+            } else {
+                 variableData = headerBuffer.slice(30, 30 + nameLen + extraLen);
+            }
             const dataStart = file.localOffset + 30 + nameLen + extraLen;
             const dataEnd = dataStart + file.compSize - 1;
 
@@ -995,7 +1092,7 @@
     }
     animateCursor();
 
-    const Me = ['PeekXtract By ArKT', 'Web Version v1.6', 'ArKT-7', 'ArKT_7'];
+    const Me = ['PeekXtract By ArKT', 'Web Version v1.8', 'ArKT-7', 'ArKT_7'];
     const MeContainer = document.getElementById('me-display');
     async function typeWriterLoop() {
         while (true) {
