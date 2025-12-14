@@ -7,6 +7,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="./dist/protobuf.js"></script>
+    <script src="./dist/xzwasm.js"></script>
 
     <style>
         :root {
@@ -113,7 +115,7 @@
         .header-right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
         .meta-info { font-size: 0.75rem; color: var(--text-dim); text-align: right; line-height: 1.4; }
 
-        .toolbar-container { display: flex; justify-content: flex-end; margin-bottom: 10px; margin-top: 0; }
+        .toolbar-container { display: flex; justify-content: flex-end; margin-bottom: 10px; margin-top: 0; align-items:center; }
 
         .theme-btn {
             background: transparent; border: 1px solid var(--border-color);
@@ -344,6 +346,21 @@
         .p-bar-track { width: 100%; height: 6px; background: var(--border-color); border-radius: 3px; margin-top: 15px; overflow: hidden; }
         .p-bar-fill { height: 100%; width: 0%; background: var(--system-accent-color); transition: width 0.1s; }
 
+        .payload-btn { 
+            width: 100%; background: rgba(0, 225, 255, 0.1); 
+            border: 1px solid var(--accent-blue); color: var(--accent-blue); 
+            margin-top: 10px; display: none; 
+        }
+        .payload-btn:hover { background: var(--accent-blue); color: #000; }
+        
+        #backBtn { display: none; margin-right: auto; }
+        #backBtn.visible { display: block; }
+        
+        #progLog {
+            margin-top: 15px; height: 100px; background: #000; color: #aaa;
+            font-size: 0.7rem; overflow-y: auto; padding: 10px;
+            border-radius: 6px; text-align: left; font-family: monospace; display: none;
+        }
     </style>
 </head>
 <body>
@@ -378,15 +395,17 @@
                 <div class="detail-val" id="det-method">---</div>
             </div>
             <button id="det-download-btn" class="sys-btn download-large">INITIALIZE DOWNLOAD</button>
+            <button id="det-payload-btn" class="sys-btn payload-btn">PARSE ANDROID PAYLOAD</button>
         </div>
     </div>
 
-    <div class="progress-overlay" id="progressModal">
+    <div class="overlay" id="progressModal">
         <div class="progress-box">
-            <div class="spinner"></div>
+            <div class="spinner" id="progSpinner"></div>
             <div id="progressText" style="color: var(--text-color); margin-bottom: 5px; font-weight: bold;">PROCESSING</div>
             <div id="progressDetail" style="font-size:0.8rem; color: var(--text-dim);">Connecting...</div>
             <div class="p-bar-track"><div class="p-bar-fill" id="progressBarFill"></div></div>
+            <div id="progLog"></div> <button id="progCloseBtn" class="sys-btn" style="width:100%; margin-top:15px; display:none;" onclick="toggleOverlay('progressModal', false)">CLOSE</button>
         </div>
     </div>
 
@@ -402,6 +421,8 @@
         </header>
 
         <div class="toolbar-container">
+            <button id="backBtn" class="theme-btn" onclick="restoreZipView()">[ < BACK TO ZIP ]</button>
+            <div style="flex-grow: 1;"></div>
             <button id="theme-toggle" class="theme-btn" onclick="toggleOverlay('theme-overlay', true)">[ CHANGE THEME ]</button>
         </div>
 
@@ -457,7 +478,7 @@
 
         <div class="card hidden" id="resultsCard">
             <div class="card-header-row">
-                <div class="card-title" style="border:none; padding:0; margin:0;">FILE DIRECTORY</div>
+                <div class="card-title" id="listTitle" style="border:none; padding:0; margin:0;">FILE DIRECTORY</div>
                 <div id="fileCountBadge" class="badge dim">0 FILES</div>
             </div>
             <div style="margin-bottom: 15px;">
@@ -661,6 +682,9 @@
     let FILE_LIST = [];
     let sortState = { key: 'id', dir: 'asc' };
     let fileSize = 0;
+    let PARTITIONS = [];
+    let PAYLOAD_INFO = null;
+    let IS_PAYLOAD_VIEW = false;
 
     function setSystemMsg(msg, isError = false) {
         const el = document.getElementById('system-msg');
@@ -779,6 +803,7 @@
             document.getElementById('scanBtn').disabled = true;
             document.getElementById('resultsCard').classList.add('hidden');
             FILE_LIST = [];
+            IS_PAYLOAD_VIEW = false;
             
             const { url, size } = await resolveUrlAndSize(inputUrl);
             CURRENT_URL = url;
@@ -930,15 +955,28 @@
             }
         });
 
-        FILE_LIST.sort((a, b) => {
+        const list = IS_PAYLOAD_VIEW ? PARTITIONS : FILE_LIST;
+        list.sort((a, b) => {
             let valA = a[key];
             let valB = b[key];
+
+            if(IS_PAYLOAD_VIEW) {
+                if(key === 'name') { valA = a.partitionName; valB = b.partitionName; }
+                if(key === 'size') { 
+                    valA = toNum(a.newPartitionInfo?.size || 0);
+                    valB = toNum(b.newPartitionInfo?.size || 0);
+                }
+                if(key === 'id') { valA = PARTITIONS.indexOf(a); valB = PARTITIONS.indexOf(b); }
+            }
+
             if (key === 'name') { valA = valA.toLowerCase(); valB = valB.toLowerCase(); }
             if (valA < valB) return sortState.dir === 'asc' ? -1 : 1;
             if (valA > valB) return sortState.dir === 'asc' ? 1 : -1;
             return 0;
         });
-        filterFiles();
+        
+        if(IS_PAYLOAD_VIEW) renderPayloadTable(list);
+        else filterFiles();
     }
 
     function filterFiles() {
@@ -948,13 +986,17 @@
     }
 
     function renderFiles(list) {
+        document.getElementById('listTitle').innerText = "FILE DIRECTORY";
+        document.getElementById('backBtn').classList.remove('visible');
+        document.getElementById('fileCountBadge').innerText = `${FILE_LIST.length} FILES`;
+
         const tbody = document.getElementById('fileTableBody');
         tbody.innerHTML = list.map(f => {
             const isSupported = f.method === 0 || f.method === 8;
             return `
             <tr onclick="openDetails(${f.id})">
                 <td class="col-id">#${String(f.id).padStart(3, '0')}</td>
-                <td class="col-name" title="${f.name}">${f.name}</td>
+                <td class="col-name" title="${f.name}" style="${f.name.endsWith('payload.bin') ? 'color:var(--accent-blue);font-weight:bold;' : ''}">${f.name}</td>
                 <td class="col-size">${formatSize(f.size)}</td>
                 <td class="col-action">
                     <button class="mini-btn" onclick="event.stopPropagation(); downloadFile(${f.id})" ${!isSupported ? 'disabled' : ''}>⇩</button>
@@ -965,6 +1007,8 @@
     }
 
     function openDetails(id) {
+        if(IS_PAYLOAD_VIEW) return openPartitionDetails(id);
+
         const file = FILE_LIST.find(f => f.id === id);
         if (!file) return;
         document.getElementById('det-name').textContent = file.name.split('/').pop();
@@ -977,6 +1021,15 @@
         btn.disabled = !isSupported;
         btn.onclick = () => downloadFile(id);
         btn.textContent = isSupported ? "INITIALIZE DOWNLOAD" : "METHOD NOT SUPPORTED";
+
+        const plBtn = document.getElementById('det-payload-btn');
+        if (file.name.endsWith('payload.bin')) {
+            plBtn.style.display = 'block';
+            plBtn.onclick = () => initPayloadMode(file);
+        } else {
+            plBtn.style.display = 'none';
+        }
+
         toggleOverlay('details-overlay', true);
     }
 
@@ -990,6 +1043,7 @@
         const pFill = document.getElementById('progressBarFill');
         
         pFill.style.width = '0%';
+        toggleOverlay('progressModal', true);
         
         try {
             modal.style.display = 'flex';
@@ -998,7 +1052,7 @@
 
             const headerBuffer = await fetchBytes(CURRENT_URL, file.localOffset, file.localOffset + 255);
             const view = new DataView(headerBuffer);
-            if (view.getUint32(0, true) !== LFH_SIG) throw new Error("Header Sync Error");
+            if (view.getUint32(0, true) !== LFH_SIG) throw new Error("Header Sync Error. File may be encrypted or offset wrong.");
             const nameLen = view.getUint16(26, true);
             const extraLen = view.getUint16(28, true);
             let variableData;
@@ -1051,13 +1105,12 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
             
-            modal.style.display = 'none';
+            toggleOverlay('progressModal', false);
             setSystemMsg(`Download Complete: ${file.name}`);
         } catch (e) {
             console.error(e);
-            modal.style.display = 'none';
-            setSystemMsg(`DL ERROR: ${e.message}`, true);
-            alert(`ERROR: ${e.message}`);
+            pDet.innerText = "Error: " + e.message;
+            document.getElementById('progCloseBtn').style.display = 'block';
         }
     }
 
@@ -1104,6 +1157,345 @@
         }
     }
     typeWriterLoop();
+
+    const PROTO = {
+      "nested": {
+        "DeltaArchiveManifest": {
+          "fields": {
+            "block_size": { "type": "uint32", "id": 3 },
+            "partitions": { "rule": "repeated", "type": "PartitionUpdate", "id": 13 }
+          }
+        },
+        "PartitionInfo": { "fields": { "size": { "type": "uint64", "id": 1 }, "hash": { "type": "bytes", "id": 2 } } },
+        "PartitionUpdate": {
+          "fields": {
+            "partitionName": { "type": "string", "id": 1 },
+            "newPartitionInfo": { "type": "PartitionInfo", "id": 7 },
+            "operations": { "rule": "repeated", "type": "InstallOperation", "id": 8 } 
+          }
+        },
+        "InstallOperation": {
+          "fields": {
+            "type": { "type": "uint32", "id": 1 },
+            "dataOffset": { "type": "uint64", "id": 2 },
+            "dataLength": { "type": "uint64", "id": 3 },
+            "dstExtents": { "rule": "repeated", "type": "Extent", "id": 6 } 
+          }
+        },
+        "Extent": { "fields": { "startBlock": { "type": "uint64", "id": 1 }, "numBlocks": { "type": "uint64", "id": 2 } } }
+      }
+    };
+
+    const toNum = (n) => (n && n.low !== undefined) ? n.low + (n.high * 4294967296) : (Number(n) || 0);
+
+    async function initPayloadMode(file) {
+        toggleOverlay('details-overlay', false);
+        const modal = document.getElementById('progressModal');
+        const pText = document.getElementById('progressText');
+        const pDet = document.getElementById('progressDetail');
+        const pFill = document.getElementById('progressBarFill');
+        const pLog = document.getElementById('progLog');
+        
+        toggleOverlay('progressModal', true);
+        pText.innerText = "PARSING PAYLOAD";
+        pFill.style.width = "30%";
+        pLog.style.display = 'none';
+
+        try {
+            if(file.method !== 0) throw new Error("Payload is compressed in ZIP. Cannot seek.");
+
+            const lhBuf = await fetchBytes(CURRENT_URL, file.localOffset, file.localOffset + 512);
+            const lhView = new DataView(lhBuf);
+            if(lhView.getUint32(0, true) !== LFH_SIG) throw new Error("Local Header Error");
+            const lnLen = lhView.getUint16(26, true);
+            const lxLen = lhView.getUint16(28, true);
+            const payloadStart = file.localOffset + 30 + lnLen + lxLen;
+
+            const MAGIC = "CrAU";
+            const hBuf = await fetchBytes(CURRENT_URL, payloadStart, payloadStart + 256);
+            const hView = new DataView(hBuf);
+            if(new TextDecoder().decode(new Uint8Array(hBuf, 0, 4)) !== MAGIC) throw new Error("Not a valid Payload");
+
+            let ver = hView.getBigUint64(4, false);
+            let mLen = Number(hView.getBigUint64(12, false));
+            let sLen = Number(ver) >= 2 ? hView.getUint32(20, false) : 0;
+            const hdrSz = Number(ver) >= 2 ? 24 : 20;
+
+            const mBuf = await fetchBytes(CURRENT_URL, payloadStart + hdrSz, payloadStart + hdrSz + mLen - 1);
+            const root = protobuf.Root.fromJSON(PROTO);
+            const Type = root.lookupType("DeltaArchiveManifest");
+            const msg = Type.decode(new Uint8Array(mBuf));
+            const obj = Type.toObject(msg, { defaults: true, longs: Number });
+
+            PAYLOAD_INFO = {
+                dataOffset: payloadStart + hdrSz + mLen + sLen,
+                blockSize: obj.blockSize || 4096
+            };
+            PARTITIONS = obj.partitions || [];
+
+            renderPayloadPartitions();
+            toggleOverlay('progressModal', false);
+
+        } catch(e) {
+            pDet.innerText = "Error: " + e.message;
+            document.getElementById('progCloseBtn').style.display = 'block';
+        }
+    }
+
+    function renderPayloadPartitions() {
+        IS_PAYLOAD_VIEW = true;
+        document.getElementById('listTitle').innerText = "SYSTEM PARTITIONS";
+        document.getElementById('fileCountBadge').innerText = `${PARTITIONS.length} PARTITIONS`;
+        document.getElementById('backBtn').classList.add('visible');
+        setSystemMsg(`Payload Parsed. ${PARTITIONS.length} partitions available.`);
+
+        const tbody = document.getElementById('fileTableBody');
+        tbody.innerHTML = PARTITIONS.map((p, idx) => {
+            let size = toNum(p.newPartitionInfo?.size || 0);
+            
+            if (!size) {
+                let totalBlocks = 0;
+                const ops = p.operations || [];
+                ops.forEach(op => {
+                    if (op.dstExtents) {
+                        op.dstExtents.forEach(e => totalBlocks += toNum(e.numBlocks));
+                    }
+                });
+                size = totalBlocks * PAYLOAD_INFO.blockSize;
+            }
+
+            if (!size) {
+                const ops = p.operations || [];
+                size = ops.reduce((a, b) => a + (toNum(b.dataLength) || 0), 0);
+            }
+
+            return `
+            <tr onclick="openPartitionDetails(${idx})">
+                <td class="col-id">${idx+1}</td>
+                <td class="col-name" style="color:var(--system-accent-color); font-weight:bold;">${p.partitionName}.img</td>
+                <td class="col-size">${formatSize(size)}</td>
+                <td class="col-action">
+                    <button class="mini-btn" onclick="event.stopPropagation(); extractPartition(${idx})">⇩</button>
+                </td>
+            </tr>`;
+        }).join('');
+    }
+
+    function openPartitionDetails(idx) {
+        const p = PARTITIONS[idx];
+        document.getElementById('det-name').textContent = `${p.partitionName}.img`;
+        let size = toNum(p.newPartitionInfo?.size || 0);
+        if(!size) (p.operations||[]).forEach(op => { if(op.dstExtents) op.dstExtents.forEach(e => size += toNum(e.numBlocks)); });
+        size = size * PAYLOAD_INFO.blockSize;
+        
+        document.getElementById('det-size').textContent = formatSize(size);
+        document.getElementById('det-method').textContent = "XZ / RAW";
+        const btn = document.getElementById('det-download-btn');
+        btn.textContent = "EXTRACT PARTITION";
+        btn.onclick = () => extractPartition(idx);
+        document.getElementById('det-payload-btn').style.display = 'none';
+        toggleOverlay('details-overlay', true);
+    }
+
+    function restoreZipView() {
+        renderFiles(FILE_LIST);
+        IS_PAYLOAD_VIEW = false;
+        document.getElementById('backBtn').classList.remove('visible');
+        document.getElementById('listTitle').innerText = "FILE DIRECTORY";
+    }
+
+    async function extractPartition(idx) {
+        toggleOverlay('details-overlay', false);
+        const p = PARTITIONS[idx];
+        const ops = p.operations || [];
+        const name = p.partitionName;
+        const blockSz = PAYLOAD_INFO.blockSize;
+        const fileName = `${name}.img`;
+
+        let totalCompressed = 0;
+        let totalUncompressed = 0;
+
+        ops.forEach(op => {
+            totalCompressed += toNum(op.dataLength || 0);
+            if (op.dstExtents) {
+                op.dstExtents.forEach(e => totalUncompressed += toNum(e.numBlocks));
+            }
+        });
+        totalUncompressed = totalUncompressed * blockSz;
+
+        if (totalUncompressed === 0) totalUncompressed = toNum(p.newPartitionInfo?.size || 0);
+        if (totalCompressed === 0) totalCompressed = totalUncompressed; 
+
+        const modal = document.getElementById('progressModal');
+        const pFill = document.getElementById('progressBarFill');
+        const pText = document.getElementById('progressText');
+        const pDet = document.getElementById('progressDetail');
+        const pLog = document.getElementById('progLog');
+        
+        toggleOverlay('progressModal', true);
+
+        pLog.style.display = 'none';
+
+        pText.innerHTML = `
+            <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:300px; margin:0 auto;">
+                DOWNLOADING <span style="color:var(--system-accent-color);">${fileName}</span>
+            </div>`;
+            
+        pFill.style.width = "0%";
+        pFill.style.transition = "width 0.1s linear";
+        pDet.innerText = `Connecting...`;
+
+        try {
+            const outBuffer = new Uint8Array(totalUncompressed);
+            
+            const xzLib = window.xzwasm || (typeof xzwasm !== 'undefined' ? xzwasm : null);
+            if(!xzLib || !xzLib.XzReadableStream) throw new Error("XZ Library missing");
+            const XzStream = xzLib.XzReadableStream;
+            const XZ_SIG = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
+
+            const CONCURRENCY = 6; 
+            let active = 0;
+            let processedBytes = 0;
+            const startTime = Date.now();
+            let lastUpdate = 0;
+
+            const updateUI = () => {
+                const now = Date.now();
+                if (now - lastUpdate < 50) return;
+                lastUpdate = now;
+
+                const elapsed = (now - startTime) / 1000;
+                const speedBytes = elapsed > 0 ? processedBytes / elapsed : 0;
+                const speedMB = (speedBytes / (1024 * 1024)).toFixed(2);
+                
+                const loadedMB = (processedBytes / (1024 * 1024)).toFixed(2);
+                const totalMB = (totalCompressed / (1024 * 1024)).toFixed(2);
+                
+                let pct = totalCompressed > 0 ? (processedBytes / totalCompressed) * 100 : 0;
+                if(pct > 100) pct = 100;
+
+                pFill.style.width = `${pct}%`;
+                pDet.innerText = `${Math.floor(pct)}% | ${loadedMB} MB / ${totalMB} MB @ ${speedMB} MB/s`;
+            };
+
+            const processOp = async (op) => {
+                const type = op.type;
+                const dOff = toNum(op.dataOffset);
+                const dLen = toNum(op.dataLength);
+                
+                let data = new Uint8Array(0);
+
+                if(dLen > 0) {
+                    const target = getTargetUrl(CURRENT_URL);
+                    const start = PAYLOAD_INFO.dataOffset + dOff;
+                    const end = start + dLen - 1;
+                    
+                    const response = await fetch(target, { 
+                        headers: getRequestHeaders(start, end)
+                    });
+
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                    const reader = response.body.getReader();
+                    const chunks = [];
+                    
+                    while(true) {
+                        const {done, value} = await reader.read();
+                        if (done) break;
+                        chunks.push(value);
+                        processedBytes += value.length;
+                        updateUI();
+                    }
+
+                    data = new Uint8Array(dLen);
+                    let pos = 0;
+                    for(let chunk of chunks) {
+                        data.set(chunk, pos);
+                        pos += chunk.length;
+                    }
+                }
+
+                let finalData = null;
+                if(type === 0) finalData = data; 
+                else if(type === 8) { 
+                    let isXz = data.length > 6;
+                    if(isXz) for(let k=0; k<6; k++) if(data[k] !== XZ_SIG[k]) isXz = false;
+                    
+                    if(isXz) {
+                        try {
+                            const blob = new Blob([data]);
+                            const stream = new XzStream(blob.stream());
+                            const response = new Response(stream);
+                            finalData = new Uint8Array(await response.arrayBuffer());
+                        } catch(e) { console.warn("Decompress error", e); }
+                    }
+                }
+
+                if(finalData) {
+                    let ptr = 0;
+                    if(op.dstExtents) {
+                        for(const ext of op.dstExtents) {
+                            const start = toNum(ext.startBlock) * blockSz;
+                            const len = toNum(ext.numBlocks) * blockSz;
+                            if(start + len <= outBuffer.length && ptr + len <= finalData.length) {
+                                outBuffer.set(finalData.subarray(ptr, ptr + len), start);
+                            }
+                            ptr += len;
+                        }
+                    }
+                }
+            };
+
+            const queue = [...ops];
+            while(queue.length > 0) {
+                const batch = [];
+                while(active < CONCURRENCY && queue.length > 0) {
+                    const op = queue.shift();
+                    const p = processOp(op).then(() => active--);
+                    batch.push(p);
+                    active++;
+                }
+                await Promise.race(batch);
+                if(queue.length === 0) await Promise.all(batch);
+            }
+
+            pText.innerHTML = `
+                <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:300px; margin:0 auto;">
+                    EXTRACTING <span style="color:var(--system-accent-color);">${fileName}</span>
+                </div>`;
+            pDet.innerHTML = `Full Size: <span style="color:#fff">${formatSize(totalUncompressed)}</span> | Saving...`;
+            pFill.style.transition = 'none';
+            pFill.style.width = '0%';
+            pFill.offsetHeight;
+            
+            setTimeout(() => {
+                pFill.style.transition = 'width 0.8s ease-in-out';
+                pFill.style.width = '100%';
+            }, 50);
+
+            await new Promise(r => setTimeout(r, 600));
+
+            const blob = new Blob([outBuffer], {type: "application/octet-stream"});
+            const u = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = u; a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            setTimeout(() => {
+                toggleOverlay('progressModal', false);
+                setSystemMsg(`Extracted ${fileName} successfully.`);
+            }, 1000);
+
+        } catch(e) {
+            console.error(e);
+            pDet.innerText = "ERROR";
+            pLog.style.display = 'block';
+            pLog.innerHTML = `<div style="color:#ff0000">FATAL ERROR: ${e.message}</div>`;
+            document.getElementById('progCloseBtn').style.display = 'block';
+        }
+    }
 </script>
 </body>
 </html>
