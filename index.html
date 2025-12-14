@@ -446,19 +446,20 @@
             <div class="options-row">
                 <div class="option-line">
                     <label class="custom-chk">
-                        <input type="checkbox" id="corsToggle" onchange="toggleProxyUI()">
+                        <input type="checkbox" id="corsToggle" onchange="toggleProxyUI()" checked>
                         <span class="checkmark"></span>
                         ENABLE PROXY
                     </label>
 
-                    <div id="proxyModeDropdown" class="custom-select-container hidden">
+                    <div id="proxyModeDropdown" class="custom-select-container">
                         <div class="select-head" onclick="toggleCustomSelect()">
-                            <span id="proxySelectLabel">DEFAULT (Heroku)</span>
+                            <span id="proxySelectLabel">ArKT Proxy (Fast)</span>
                             <span>▼</span>
                         </div>
                         <div class="select-list hidden" id="proxySelectList">
-                            <div class="select-option" onclick="selectProxyMode('heroku')">DEFAULT (Heroku)</div>
-                            <div class="select-option" onclick="selectProxyMode('custom')">CUSTOM PROXY URL</div>
+                            <div class="select-option" onclick="selectProxyMode('arkt')">ArKT Proxy (Fast)</div>
+                            <div class="select-option" onclick="selectProxyMode('heroku')">Heroku (Public/Slow)</div>
+                            <div class="select-option" onclick="selectProxyMode('custom')">Custom Proxy URL</div>
                         </div>
                     </div>
                 </div>
@@ -514,8 +515,10 @@
     </div>
 
 <script>
+
+    const ARKT_PROXY = "https://peekxtract.arkt.workers.dev/"; 
     const HEROKU_PROXY = "https://cors-anywhere.herokuapp.com/";
-    let currentProxyMode = 'heroku'; 
+    let currentProxyMode = 'arkt'; 
 
     function toggleProxyUI() {
         const isProxyEnabled = document.getElementById('corsToggle').checked;
@@ -539,7 +542,11 @@
 
     function selectProxyMode(mode) {
         currentProxyMode = mode;
-        document.getElementById('proxySelectLabel').textContent = mode === 'heroku' ? "DEFAULT (Heroku)" : "CUSTOM PROXY URL";
+        const label = document.getElementById('proxySelectLabel');
+        if(mode === 'arkt') label.textContent = "ArKT Proxy (Fast)";
+        else if(mode === 'heroku') label.textContent = "Heroku (Public/Slow)";
+        else label.textContent = "Custom Proxy URL";
+
         document.getElementById('proxySelectList').classList.add('hidden');
         updateProxyDisplay();
     }
@@ -547,13 +554,13 @@
     function updateProxyDisplay() {
         const customInput = document.getElementById('customProxyContainer');
         const herokuAlert = document.getElementById('herokuAlertContainer');
-        
+        customInput.classList.add('hidden');
+        herokuAlert.classList.add('hidden');
+
         if (currentProxyMode === 'heroku') {
-            customInput.classList.add('hidden');
             herokuAlert.classList.remove('hidden');
-        } else {
+        } else if (currentProxyMode === 'custom') {
             customInput.classList.remove('hidden');
-            herokuAlert.classList.add('hidden');
         }
     }
 
@@ -586,7 +593,9 @@
         const isProxyEnabled = document.getElementById('corsToggle').checked;
         if (!isProxyEnabled) return finalUrl;
 
-        if (currentProxyMode === 'heroku') {
+        if (currentProxyMode === 'arkt') {
+            return ARKT_PROXY + finalUrl;
+        } else if (currentProxyMode === 'heroku') {
             return HEROKU_PROXY + finalUrl;
         } else {
             let custom = document.getElementById('customProxyInput').value.trim();
@@ -1342,8 +1351,28 @@
             </div>`;
             
         pFill.style.width = "0%";
-        pFill.style.transition = "width 0.1s linear";
-        pDet.innerText = `Connecting...`;
+        pFill.style.transition = "width 0.1s linear"; 
+        pDet.innerText = `Allocating ${formatSize(totalUncompressed)}...`;
+
+        const fetchChunkWithRetry = async (url, start, end, retries = 3) => {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, { headers: getRequestHeaders(start, end) });
+                    if (!response.ok) {
+                        if (response.status === 429 || response.status === 503) {
+                            await new Promise(r => setTimeout(r, 2000 * (i + 1)));
+                            continue;
+                        }
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    return await response.arrayBuffer();
+                } catch (e) {
+                    if (i === retries - 1) throw e;
+                    console.warn(`Chunk retry ${i + 1}/${retries} for ${fileName}...`);
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+            }
+        };
 
         try {
             const outBuffer = new Uint8Array(totalUncompressed);
@@ -1353,7 +1382,7 @@
             const XzStream = xzLib.XzReadableStream;
             const XZ_SIG = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 
-            const CONCURRENCY = 6; 
+            const CONCURRENCY = 3; 
             let active = 0;
             let processedBytes = 0;
             const startTime = Date.now();
@@ -1361,7 +1390,7 @@
 
             const updateUI = () => {
                 const now = Date.now();
-                if (now - lastUpdate < 50) return;
+                if (now - lastUpdate < 100) return;
                 lastUpdate = now;
 
                 const elapsed = (now - startTime) / 1000;
@@ -1389,30 +1418,10 @@
                     const target = getTargetUrl(CURRENT_URL);
                     const start = PAYLOAD_INFO.dataOffset + dOff;
                     const end = start + dLen - 1;
-                    
-                    const response = await fetch(target, { 
-                        headers: getRequestHeaders(start, end)
-                    });
-
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-                    const reader = response.body.getReader();
-                    const chunks = [];
-                    
-                    while(true) {
-                        const {done, value} = await reader.read();
-                        if (done) break;
-                        chunks.push(value);
-                        processedBytes += value.length;
-                        updateUI();
-                    }
-
-                    data = new Uint8Array(dLen);
-                    let pos = 0;
-                    for(let chunk of chunks) {
-                        data.set(chunk, pos);
-                        pos += chunk.length;
-                    }
+                    const buf = await fetchChunkWithRetry(target, start, end);
+                    data = new Uint8Array(buf);
+                    processedBytes += data.length;
+                    updateUI();
                 }
 
                 let finalData = null;
@@ -1427,7 +1436,10 @@
                             const stream = new XzStream(blob.stream());
                             const response = new Response(stream);
                             finalData = new Uint8Array(await response.arrayBuffer());
-                        } catch(e) { console.warn("Decompress error", e); }
+                        } catch(e) { 
+                            console.warn("Decompress chunk error", e);
+                            throw new Error("Decompression Failed: Input data corrupt or truncated.");
+                        }
                     }
                 }
 
