@@ -988,7 +988,7 @@
                     <div class="detail-val" id="det-path" style="font-family: monospace; color: var(--system-accent-color);">---</div>
                     <div class="detail-label">SIZE</div>
                     <div class="detail-val" id="det-size">---</div>
-                    <div class="detail-label">CRC32</div>
+                    <div class="detail-label" id="det-hash-label">CRC32</div>
                     <div class="detail-val" id="det-crc" style="font-family: monospace;">---</div>
                     <div class="detail-label">COMPRESSION</div>
                     <div class="detail-val" id="det-method">---</div>
@@ -1011,6 +1011,35 @@
                     <button id="progCloseBtn" class="sys-btn" style="flex:1;">CLOSE</button>
                 </div>
                 <button id="progCancelParseBtn" class="sys-btn" style="display:none; width:100%; margin-top:20px; border-color:var(--accent-red); color:var(--accent-red);">CANCEL OPERATION</button>
+            </div>
+        </div>
+        <div id="boot-overlay" class="overlay">
+            <div class="modal-card" style="width: 95%; max-width: 650px; text-align: left;">
+                <div style="border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+                    <h2 class="brand" style="font-size: 1.5rem;">BOOT IMAGE INSPECTOR</h2>
+                    <button onclick="toggleOverlay('boot-overlay', false)" style="background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:1.5rem;">&times;</button>
+                </div>
+                <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; font-family: monospace; font-size: 0.8rem; margin-bottom: 20px; border: 1px solid var(--border-color);">
+                    <div style="color: var(--text-dim); margin-bottom: 10px; font-weight: bold;">HEADER INFO</div>
+                    <div id="boot-info-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"></div>
+                    <div id="boot-cmdline-container" style="margin-top: 15px; border-top: 1px dashed var(--border-color); padding-top: 10px;">
+                        <div style="color: var(--text-dim); margin-bottom: 5px; font-weight: bold;">KERNEL CMDLINE</div>
+                        <div id="boot-cmdline" style="color: var(--system-accent-color); word-break: break-all; user-select: text;">---</div>
+                    </div>
+                </div>
+                <div class="file-table-container" style="max-height: 250px;">
+                    <table class="file-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 40%;">COMPONENT</th>
+                                <th style="width: 30%; text-align: right;">SIZE</th>
+                                <th style="width: 30%; text-align: center;">ACTION</th>
+                            </tr>
+                        </thead>
+                        <tbody id="boot-components-body"></tbody>
+                    </table>
+                </div>
+                <button class="sys-btn" onclick="toggleOverlay('boot-overlay', false)" style="width: 100%; margin-top: 20px;">CLOSE INSPECTOR</button>
             </div>
         </div>
         <div class="container">
@@ -1847,6 +1876,10 @@
                 if (IS_PAYLOAD_VIEW)
                     return openPartitionDetails(id);
 
+                const label = document.getElementById('det-hash-label');
+                if (label)
+                    label.textContent = "CRC32";
+
                 const file = FILE_LIST.find(f => f.id === id);
                 if (!file)
                     return;
@@ -1881,6 +1914,7 @@
                 toggleOverlay('details-overlay', true);
             }
 
+            let CURRENT_BOOT_BLOB = null;
             function showDownloadCompleteUI(blobUrl, filename) {
                 activeBlobUrl = blobUrl;
 
@@ -1897,11 +1931,12 @@
 
                 pText.innerHTML = `COMPLETED<br><span style="font-size:0.8rem; color:var(--system-accent-color); font-weight:normal;">${filename}</span>`;
                 pText.style.color = "var(--text-color)";
-                pDet.innerText = "File prepared successfully.";
+                pDet.innerText = "Ready to save.";
 
                 btnContainer.style.display = 'flex';
                 saveBtn.style.display = 'block';
                 closeBtn.style.display = 'block';
+                saveBtn.innerText = "SAVE FILE";
 
                 saveBtn.onclick = () => {
                     const a = document.createElement('a');
@@ -1917,13 +1952,49 @@
                     if (activeBlobUrl) {
                         URL.revokeObjectURL(activeBlobUrl);
                         activeBlobUrl = null;
-                        console.log("Memory released.");
                     }
                     toggleOverlay('progressModal', false);
                 }
                 ;
 
-                saveBtn.click();
+                const oldUnpack = document.getElementById('progUnpackBtn');
+                if (oldUnpack)
+                    oldUnpack.remove();
+
+                if (filename.match(/^(boot|recovery|init_boot|vendor_boot|dtbo).*\.img$/i)) {
+                    const unpackBtn = document.createElement('button');
+                    unpackBtn.id = 'progUnpackBtn';
+                    unpackBtn.className = 'sys-btn';
+                    unpackBtn.style.flex = '1';
+                    unpackBtn.style.borderColor = 'var(--accent-blue)';
+                    unpackBtn.style.color = 'var(--accent-blue)';
+                    unpackBtn.innerHTML = "UNPACK / INSPECT";
+                    unpackBtn.style.marginRight = '5px';
+
+                    unpackBtn.onmouseenter = function() {
+                        this.style.background = 'var(--accent-blue)';
+                        this.style.color = '#000';
+                    }
+                    ;
+                    unpackBtn.onmouseleave = function() {
+                        this.style.background = 'transparent';
+                        this.style.color = 'var(--accent-blue)';
+                    }
+                    ;
+
+                    unpackBtn.onclick = async () => {
+                        try {
+                            const r = await fetch(blobUrl);
+                            const b = await r.blob();
+                            CURRENT_BOOT_BLOB = b;
+                            inspectBootImage(b, filename);
+                        } catch (e) {
+                            alert("Inspection Failed: " + e.message);
+                        }
+                    }
+                    ;
+                    btnContainer.insertBefore(unpackBtn, saveBtn);
+                }
             }
 
             async function downloadFile(id) {
@@ -2397,6 +2468,10 @@
                     return;
                 }
 
+                const label = document.getElementById('det-hash-label');
+                if (label)
+                    label.textContent = "SHA-256";
+
                 const p = PARTITIONS[idx];
                 document.getElementById('det-name').textContent = `${p.partitionName}.img`;
                 document.getElementById('det-path').textContent = `payload.bin :: ${p.partitionName}`;
@@ -2728,6 +2803,192 @@
                     }
                     ;
                 }
+            }
+
+            async function inspectBootImage(blob, filename) {
+                const reader = new FileReader();
+                reader.onload = function() {
+                    try {
+                        const buf = this.result;
+                        const view = new DataView(buf);
+                        const decoder = new TextDecoder();
+                        const magic = decoder.decode(new Uint8Array(buf,0,8));
+
+                        let headerVersion = 0
+                          , pageSize = 2048
+                          , kernelSz = 0
+                          , ramdiskSz = 0
+                          , secondSz = 0
+                          , recDtboSz = 0
+                          , dtbSz = 0;
+                        const infoGrid = document.getElementById('boot-info-grid');
+                        const tableBody = document.getElementById('boot-components-body');
+                        const cmdDiv = document.getElementById('boot-cmdline');
+                        const cmdContainer = document.getElementById('boot-cmdline-container');
+                        let components = [];
+
+                        const getPad = (sz, pg) => (sz + pg - 1) & ~(pg - 1);
+
+                        if (magic === "ANDROID!") {
+                            const verCheck = view.getUint32(40, true);
+
+                            if (verCheck === 3 || verCheck === 4) {
+                                headerVersion = verCheck;
+                                pageSize = 4096;
+                                kernelSz = view.getUint32(8, true);
+                                ramdiskSz = view.getUint32(12, true);
+
+                                let currentPos = 4096;
+                                if (kernelSz > 0) {
+                                    components.push({
+                                        name: 'kernel',
+                                        start: currentPos,
+                                        size: kernelSz
+                                    });
+                                    currentPos += getPad(kernelSz, pageSize);
+                                }
+                                if (ramdiskSz > 0) {
+                                    components.push({
+                                        name: 'ramdisk.cpio',
+                                        start: currentPos,
+                                        size: ramdiskSz
+                                    });
+                                    currentPos += getPad(ramdiskSz, pageSize);
+                                }
+
+                                const cmdBuf = new Uint8Array(buf,44,1536);
+                                cmdDiv.textContent = decoder.decode(cmdBuf).replace(/\0/g, '').trim();
+
+                            } else {
+                                headerVersion = view.getUint32(44, true);
+                                pageSize = view.getUint32(36, true);
+                                kernelSz = view.getUint32(8, true);
+                                ramdiskSz = view.getUint32(16, true);
+                                secondSz = view.getUint32(24, true);
+
+                                if (headerVersion >= 1)
+                                    recDtboSz = view.getUint32(1632 + 4, true);
+                                if (headerVersion >= 2)
+                                    dtbSz = view.getUint32(1632 + 16, true);
+
+                                let currentPos = pageSize;
+                                if (kernelSz > 0) {
+                                    components.push({
+                                        name: 'kernel',
+                                        start: currentPos,
+                                        size: kernelSz
+                                    });
+                                    currentPos += getPad(kernelSz, pageSize);
+                                }
+                                if (ramdiskSz > 0) {
+                                    components.push({
+                                        name: 'ramdisk.cpio',
+                                        start: currentPos,
+                                        size: ramdiskSz
+                                    });
+                                    currentPos += getPad(ramdiskSz, pageSize);
+                                }
+                                if (secondSz > 0) {
+                                    components.push({
+                                        name: 'second_stage',
+                                        start: currentPos,
+                                        size: secondSz
+                                    });
+                                    currentPos += getPad(secondSz, pageSize);
+                                }
+                                if (recDtboSz > 0) {
+                                    components.push({
+                                        name: 'recovery_dtbo',
+                                        start: currentPos,
+                                        size: recDtboSz
+                                    });
+                                    currentPos += getPad(recDtboSz, pageSize);
+                                }
+                                if (dtbSz > 0) {
+                                    components.push({
+                                        name: 'dtb.img',
+                                        start: currentPos,
+                                        size: dtbSz
+                                    });
+                                    currentPos += getPad(dtbSz, pageSize);
+                                }
+
+                                const cmdBuf = new Uint8Array(buf,64,512);
+                                let cmdStr = decoder.decode(cmdBuf).replace(/\0/g, '').trim();
+                                if (headerVersion >= 1) {
+                                    const extra = decoder.decode(new Uint8Array(buf,1088,1024)).replace(/\0/g, '').trim();
+                                    if (extra)
+                                        cmdStr += " " + extra;
+                                }
+                                cmdDiv.textContent = cmdStr;
+                            }
+                        } else if (magic === "VNDRBOOT") {
+                            headerVersion = view.getUint32(4, true);
+                            pageSize = view.getUint32(8, true);
+                            ramdiskSz = view.getUint32(20, true);
+                            dtbSz = view.getUint32(24, true);
+
+                            let currentPos = pageSize;
+                            if (ramdiskSz > 0) {
+                                components.push({
+                                    name: 'vendor_ramdisk',
+                                    start: currentPos,
+                                    size: ramdiskSz
+                                });
+                                currentPos += getPad(ramdiskSz, pageSize);
+                            }
+                            if (dtbSz > 0) {
+                                components.push({
+                                    name: 'dtb.img',
+                                    start: currentPos,
+                                    size: dtbSz
+                                });
+                                currentPos += getPad(dtbSz, pageSize);
+                            }
+
+                            cmdDiv.textContent = "Vendor Boot Config";
+                        } else {
+                            alert(`Unknown Magic: ${magic.substring(0, 8)}...`);
+                            return;
+                        }
+
+                        const finalCmd = cmdDiv.textContent.trim();
+                        if (finalCmd && finalCmd !== "" && finalCmd !== "(Empty)") {
+                            cmdContainer.style.display = 'block';
+                            if (finalCmd === "")
+                                cmdDiv.textContent = "(Empty)";
+                        } else {
+                            cmdContainer.style.display = 'none';
+                        }
+
+                        infoGrid.innerHTML = `<div><span style="color:var(--text-dim)">MAGIC:</span> <span style="color:var(--system-accent-color)">${magic}</span></div><div><span style="color:var(--text-dim)">HEADER VER:</span> ${headerVersion}</div><div><span style="color:var(--text-dim)">PAGE SIZE:</span> ${pageSize}</div><div><span style="color:var(--text-dim)">KERNEL:</span> ${formatSize(kernelSz)}</div><div><span style="color:var(--text-dim)">RAMDISK:</span> ${formatSize(ramdiskSz)}</div><div><span style="color:var(--text-dim)">DTB/EXTRA:</span> ${formatSize(dtbSz || recDtboSz)}</div>`;
+                        tableBody.innerHTML = components.map( (c, i) => `<tr><td style="color:var(--text-color); font-weight:bold;">${c.name}</td><td style="text-align:right; font-family:monospace;">${formatSize(c.size)}</td><td style="text-align:center;"><button class="mini-btn" onclick="extractBootComp(${i})">DOWNLOAD</button></td></tr>`).join('');
+
+                        window.CURRENT_BOOT_MAP = components;
+                        toggleOverlay('boot-overlay', true);
+
+                    } catch (e) {
+                        console.error(e);
+                        alert("Parser Error: " + e.message);
+                    }
+                }
+                ;
+                reader.readAsArrayBuffer(blob.slice(0, 16384));
+            }
+
+            function extractBootComp(index) {
+                if (!CURRENT_BOOT_BLOB || !window.CURRENT_BOOT_MAP)
+                    return;
+                const comp = window.CURRENT_BOOT_MAP[index];
+                const slice = CURRENT_BOOT_BLOB.slice(comp.start, comp.start + comp.size);
+                const url = URL.createObjectURL(slice);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = comp.name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
             }
         </script>
     </body>
