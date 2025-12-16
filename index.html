@@ -1040,7 +1040,9 @@
                     <div class="card-title" style="border:none; padding:0; margin:0;">TARGET SELECTION</div>
                 </div>
                 <div class="input-row">
-                    <input type="text" id="urlInput" class="search-input" placeholder="ENTER ZIP URL (e.g., https://example.com/file.zip)">
+                    <input type="file" id="localPicker" style="display:none" onchange="handleLocalFile(this)">
+                    <button class="sys-btn" onclick="document.getElementById('localPicker').click()" style="margin-right:5px; padding: 12px 15px;" title="Load Local Zip">📂</button>
+                    <input type="text" id="urlInput" class="search-input" placeholder="ENTER ZIP URL  - OR -  SELECT LOCAL FILE WITH [📂]" onfocus="enterUrlEditMode()" onblur="exitUrlEditMode()" onkeypress="if(event.key === 'Enter') document.getElementById('scanBtn').click()">
                     <button id="scanBtn" class="sys-btn primary" onclick="startScan()">INIT_SCAN</button>
                 </div>
                 <div class="options-row">
@@ -1121,6 +1123,51 @@
             let currentProxyMode = 'arkt';
             let globalAbortController = null;
             let activeBlobUrl = null;
+            let LOCAL_FILE = null;
+
+            function enterUrlEditMode() {
+                const uiInput = document.getElementById('urlInput');
+                if (LOCAL_FILE) {
+                    uiInput.value = "";
+                    uiInput.classList.remove('read-only-look');
+                }
+                document.querySelector('.options-row').classList.remove('hidden');
+            }
+
+            function exitUrlEditMode() {
+                const uiInput = document.getElementById('urlInput');
+                const val = uiInput.value.trim();
+                if (val === "" && LOCAL_FILE) {
+                    uiInput.value = `[LOCAL FILE] ${LOCAL_FILE.name}`;
+                    document.querySelector('.options-row').classList.add('hidden');
+                }
+            }
+
+            function handleLocalFile(input) {
+                if (input.files && input.files[0]) {
+                    LOCAL_FILE = input.files[0];
+                    const uiInput = document.getElementById('urlInput');
+                    uiInput.value = `[LOCAL FILE] ${LOCAL_FILE.name}`;
+                    document.querySelector('.options-row').classList.add('hidden');
+                    setSystemMsg(`Local file selected: ${LOCAL_FILE.name} (${formatSize(LOCAL_FILE.size)})`);
+                    document.getElementById('resultsCard').classList.add('hidden');
+                    startScan();
+                }
+            }
+
+            function resetUrlMode() {
+                if (LOCAL_FILE) {
+                    LOCAL_FILE = null;
+                    const uiInput = document.getElementById('urlInput');
+                    uiInput.value = "";
+                    uiInput.readOnly = false;
+                    uiInput.style.opacity = "1";
+                    uiInput.style.cursor = "text";
+                    document.getElementById('localPicker').value = "";
+                    document.querySelector('.options-row').classList.remove('hidden');
+                    setSystemMsg("> Switched to URL Mode. Waiting for input...");
+                }
+            }
 
             function toggleProxyUI() {
                 const isProxyEnabled = document.getElementById('corsToggle').checked;
@@ -1365,6 +1412,10 @@
             }
 
             async function fetchBytes(url, start, end, signal=null) {
+                if (LOCAL_FILE) {
+                    const slice = LOCAL_FILE.slice(start, end + 1);
+                    return await slice.arrayBuffer();
+                }
                 const target = getTargetUrl(url);
                 const options = {
                     headers: getRequestHeaders(start, end)
@@ -1383,6 +1434,30 @@
             }
 
             async function fetchBytesWithProgress(url, start, end, onProgress) {
+                if (LOCAL_FILE) {
+                    const total = end - start + 1;
+                    let loaded = 0;
+                    const chunkSize = 1024 * 1024 * 5;
+                    let offset = start;
+                    let finalBuffer = new Uint8Array(total);
+
+                    while (offset <= end) {
+                        const chunkEnd = Math.min(offset + chunkSize, end + 1);
+                        const slice = LOCAL_FILE.slice(offset, chunkEnd);
+                        const buf = await slice.arrayBuffer();
+                        const chunkArr = new Uint8Array(buf);
+
+                        finalBuffer.set(chunkArr, loaded);
+                        loaded += chunkArr.length;
+                        offset += chunkArr.length;
+
+                        if (onProgress)
+                            onProgress(loaded, total);
+                        await new Promise(r => setTimeout(r, 0));
+                    }
+                    return finalBuffer.buffer;
+                }
+
                 const target = getTargetUrl(url);
                 const response = await fetch(target, {
                     headers: getRequestHeaders(start, end)
@@ -1478,9 +1553,16 @@
             }
 
             async function startScan() {
-                const inputUrl = document.getElementById('urlInput').value.trim();
-                if (!inputUrl) {
-                    setSystemMsg("ERROR: NO URL PROVIDED", true);
+                const uiInput = document.getElementById('urlInput');
+                const inputVal = uiInput.value.trim();
+
+                if (inputVal !== "" && !inputVal.startsWith("[LOCAL FILE]")) {
+                    LOCAL_FILE = null;
+                    document.getElementById('localPicker').value = "";
+                }
+
+                if (!inputVal && !LOCAL_FILE) {
+                    setSystemMsg("ERROR: NO FILE OR URL SELECTED", true);
                     return;
                 }
                 try {
@@ -1489,14 +1571,20 @@
                     FILE_LIST = [];
                     IS_PAYLOAD_VIEW = false;
 
-                    const {url, size} = await resolveUrlAndSize(inputUrl);
-                    CURRENT_URL = url;
+                    if (LOCAL_FILE) {
+                        CURRENT_URL = "LOCAL_FILE";
+                        fileSize = LOCAL_FILE.size;
+                        setSystemMsg(`Local Mode: ${LOCAL_FILE.name}. Reading Directory...`);
+                    } else {
+                        const {url, size} = await resolveUrlAndSize(inputVal);
+                        CURRENT_URL = url;
+                        fileSize = size;
+                        setSystemMsg(`File Size: ${formatSize(size)}. Finding Directory...`);
+                    }
 
-                    fileSize = size;
-                    setSystemMsg(`File Size: ${formatSize(size)}. Finding Directory...`);
-
+                    const size = fileSize;
                     const searchSize = Math.min(65536, size);
-                    const buffer = await fetchBytes(url, size - searchSize, size - 1);
+                    const buffer = await fetchBytes(CURRENT_URL, size - searchSize, size - 1);
                     const view = new DataView(buffer);
                     let eocdOffset = -1;
                     for (let i = view.byteLength - 22; i >= 0; i--) {
@@ -1506,7 +1594,7 @@
                         }
                     }
                     if (eocdOffset === -1)
-                        throw new Error("Invalid ZIP format (EOCD Signature missing) / Still Try with Proxy.");
+                        throw new Error("Invalid ZIP format (EOCD Signature missing).");
 
                     let cdSize = view.getUint32(eocdOffset + 12, true);
                     let cdOffset = view.getUint32(eocdOffset + 16, true);
@@ -1527,11 +1615,11 @@
                         }
 
                         if (zip64EocdOffset !== -1) {
-                            const zip64RecordBuffer = await fetchBytes(url, zip64EocdOffset, zip64EocdOffset + 55);
+                            const zip64RecordBuffer = await fetchBytes(CURRENT_URL, zip64EocdOffset, zip64EocdOffset + 55);
                             const zip64View = new DataView(zip64RecordBuffer);
-
-                            if (zip64View.getUint32(0, true) !== ZIP64_EOCD_SIG) {
-                                throw new Error("ZIP64 EOCD Record signature mismatch.");
+                            if (zip64View.getUint32(0, true) === ZIP64_EOCD_SIG) {
+                                cdSize = Number(zip64View.getBigUint64(40, true));
+                                cdOffset = Number(zip64View.getBigUint64(48, true));
                             }
 
                             const sizeBig = zip64View.getBigUint64(40, true);
@@ -1543,7 +1631,7 @@
                     }
 
                     setSystemMsg(`Reading Central Directory...`);
-                    const cdBuffer = await fetchBytes(url, cdOffset, cdOffset + cdSize - 1);
+                    const cdBuffer = await fetchBytes(CURRENT_URL, cdOffset, cdOffset + cdSize - 1);
                     const cdView = new DataView(cdBuffer);
                     let offset = 0
                       , index = 1;
@@ -2443,6 +2531,21 @@
 
                     const fetchChunk = async (start, end, expectedSha256, signal, retries=5) => {
                         const len = end - start + 1;
+
+                        if (LOCAL_FILE) {
+                            const slice = LOCAL_FILE.slice(start, end + 1);
+                            const buf = await slice.arrayBuffer();
+
+                            if (expectedSha256 && expectedSha256.length > 0) {
+                                const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+                                const actual = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+                                const expect = Array.from(expectedSha256).map(b => b.toString(16).padStart(2, '0')).join('');
+                                if (actual !== expect)
+                                    throw new Error("Chunk Hash Mismatch");
+                            }
+                            return new Uint8Array(buf);
+                        }
+
                         for (let i = 0; i < retries; i++) {
                             try {
                                 const bust = `&t=${Date.now()}`;
