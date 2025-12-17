@@ -1091,6 +1091,7 @@
                             </div>
                             <div class="select-list hidden" id="proxySelectList">
                                 <div class="select-option" onclick="selectProxyMode('arkt')">ArKT Proxy (Fast)</div>
+                                <div class="select-option" onclick="selectProxyMode('extension')" style="color:var(--accent-blue); font-weight:bold;">Browser Extension</div>
                                 <div class="select-option" onclick="selectProxyMode('heroku')">Heroku (Public/Slow)</div>
                                 <div class="select-option" onclick="selectProxyMode('custom')">Custom Proxy URL</div>
                             </div>
@@ -1099,10 +1100,7 @@
                     <div id="customProxyContainer" class="hidden" style="width: 100%;">
                         <input type="text" id="customProxyInput" class="custom-proxy-input" placeholder="Enter Custom Proxy (e.g., https://my-cors-proxy.com/)">
                     </div>
-                    <div id="herokuAlertContainer" class="hidden">
-                        <a href="https://cors-anywhere.herokuapp.com/corsdemo" target="_blank" class="proxy-alert-link">[ Note: Click here to open Heroku &amp; request temporary access ]
-                    </a>
-                    </div>
+                    <div id="herokuAlertContainer" class="hidden"></div>
                 </div>
             </div>
             <div class="card hidden" id="resultsCard">
@@ -1221,12 +1219,15 @@
             function selectProxyMode(mode) {
                 currentProxyMode = mode;
                 const label = document.getElementById('proxySelectLabel');
-                if (mode === 'arkt')
+                if (mode === 'arkt') {
                     label.textContent = "ArKT Proxy (Fast)";
-                else if (mode === 'heroku')
+                } else if (mode === 'heroku') {
                     label.textContent = "Heroku (Public/Slow)";
-                else
+                } else if (mode === 'custom') {
                     label.textContent = "Custom Proxy URL";
+                } else if (mode === 'extension') {
+                    label.textContent = "Browser Extension";
+                }
 
                 document.getElementById('proxySelectList').classList.add('hidden');
                 updateProxyDisplay();
@@ -1238,10 +1239,20 @@
                 customInput.classList.add('hidden');
                 herokuAlert.classList.add('hidden');
 
-                if (currentProxyMode === 'heroku') {
-                    herokuAlert.classList.remove('hidden');
-                } else if (currentProxyMode === 'custom') {
+                if (currentProxyMode === 'custom') {
                     customInput.classList.remove('hidden');
+                } else if (currentProxyMode === 'heroku') {
+                    herokuAlert.innerHTML = `
+                        <a href="https://cors-anywhere.herokuapp.com/corsdemo" target="_blank" class="proxy-alert-link" style="color:var(--system-accent-color); border-color:var(--system-accent-color);">
+                            [ ⚠️ REQUIRED: Click here to open Heroku &amp; request temporary access ]
+                        </a>`;
+                    herokuAlert.classList.remove('hidden');
+                } else if (currentProxyMode === 'extension') {
+                    herokuAlert.innerHTML = `
+                        <a href="https://chromewebstore.google.com/detail/odkadbffomicljkjfepnggiibcjmkogc" target="_blank" class="proxy-alert-link" style="color:var(--system-accent-color); border-color:var(--system-accent-color);">
+                            [ ⚠️ REQUIRED: Click here to install 'CORS Unblock' Extension &amp; Then enable it ]
+                        </a>`;
+                    herokuAlert.classList.remove('hidden');
                 }
             }
 
@@ -1275,6 +1286,9 @@
                 const isProxyEnabled = document.getElementById('corsToggle').checked;
                 if (!isProxyEnabled)
                     return finalUrl;
+                if (currentProxyMode === 'extension') {
+                    return finalUrl;
+                }
 
                 if (currentProxyMode === 'arkt') {
                     return ARKT_PROXY + finalUrl;
@@ -1300,7 +1314,7 @@
                 }
 
                 const isProxyEnabled = document.getElementById('corsToggle').checked;
-                if (isProxyEnabled) {
+                if (isProxyEnabled && currentProxyMode !== 'extension') {
                     headers['X-Requested-With'] = 'XMLHttpRequest';
                 }
 
@@ -1531,10 +1545,13 @@
                         headers: headers
                     });
 
-                    if (response.status === 404)
-                        throw new Error("404: File Not Found.");
-                    if (response.status === 403)
-                        throw new Error("403: Access Forbidden.");
+                    const len = response.headers.get('content-length');
+                    if (response.ok && len && !isNaN(len) && parseInt(len) > 0) {
+                        return {
+                            url: fixedUrl,
+                            size: parseInt(len)
+                        };
+                    }
                 } catch (e) {
                     console.warn("HEAD request failed or blocked, proceeding to Range test...", e);
                 }
@@ -1544,38 +1561,51 @@
                         headers: getRequestHeaders('0-0')
                     });
 
-                    if (response.status === 404)
-                        throw new Error("404: File Not Found.");
-                    if (response.status === 403)
-                        throw new Error("403: Access Forbidden (CORS or Permissions).");
+                    if (response.status === 403 || response.status === 404)
+                        throw new Error(`HTTP ${response.status}: Access Denied or File Not Found.`);
 
                     if (response.status === 200) {
-                        throw new Error("Server returned 200 OK. Range Requests NOT supported by this server.");
+                        const len = response.headers.get('content-length');
+                        if (len && parseInt(len) > 1000) {
+                            return {
+                                url: fixedUrl,
+                                size: parseInt(len)
+                            };
+                        }
+                        throw new Error("Proxy Error: Server returned 200 OK (Full File) but size is missing.");
                     }
 
-                    if (response.status !== 206) {
-                        throw new Error(`Unexpected HTTP Status: ${response.status}. Range requests likely failed.`);
-                    }
-
-                    let size = 0;
                     const cr = response.headers.get('content-range');
                     if (cr) {
-                        size = parseInt(cr.split('/')[1]);
-                    } else if (response.headers.get('content-length')) {
-                        size = parseInt(response.headers.get('content-length'));
+                        const total = cr.split('/')[1];
+                        if (total && total !== '*' && !isNaN(total)) {
+                            return {
+                                url: fixedUrl,
+                                size: parseInt(total)
+                            };
+                        }
                     }
 
-                    if (!size || isNaN(size))
-                        throw new Error("Could not determine file size.");
+                    const cl = response.headers.get('content-length');
+                    if (cl && parseInt(cl) > 100000) {
+                        return {
+                            url: fixedUrl,
+                            size: parseInt(cl)
+                        };
+                    }
 
-                    return {
-                        url: fixedUrl,
-                        size: size
-                    };
+                    throw new Error("Could not detect file size. Headers missing.");
 
                 } catch (e) {
                     if (e.name === 'TypeError' && e.message === 'Failed to fetch') {
-                        throw new Error("Connection Failed. Possible CORS block or Network Error, Try enabling the Proxy.");
+
+                        if (currentProxyMode === 'extension') {
+                            throw new Error("Connection Failed. Is the 'CORS Unblock' extension enabled?");
+                        } else if (currentProxyMode === 'arkt') {
+                            throw new Error("Connection Failed. The ArKT Proxy may be blocked by your network.");
+                        }
+
+                        throw new Error("Connection Failed. CORS Blocked or Network Error.");
                     }
                     throw e;
                 }
@@ -1925,6 +1955,7 @@
                 const saveBtn = document.getElementById('progSaveBtn');
                 const closeBtn = document.getElementById('progCloseBtn');
                 const cancelParseBtn = document.getElementById('progCancelParseBtn');
+                const progressBox = document.querySelector('.progress-box');
 
                 spinner.style.display = 'none';
                 cancelParseBtn.style.display = 'none';
@@ -1961,15 +1992,15 @@
                 if (oldUnpack)
                     oldUnpack.remove();
 
-                if (filename.match(/^(boot|recovery|init_boot|vendor_boot|dtbo).*\.img$/i)) {
+                if (filename.match(/^(boot|recovery|init_boot|vendor_boot).*\.img$/i)) {
                     const unpackBtn = document.createElement('button');
                     unpackBtn.id = 'progUnpackBtn';
                     unpackBtn.className = 'sys-btn';
-                    unpackBtn.style.flex = '1';
+                    unpackBtn.style.width = '100%';
+                    unpackBtn.style.marginTop = '15px';
                     unpackBtn.style.borderColor = 'var(--accent-blue)';
                     unpackBtn.style.color = 'var(--accent-blue)';
                     unpackBtn.innerHTML = "UNPACK / INSPECT";
-                    unpackBtn.style.marginRight = '5px';
 
                     unpackBtn.onmouseenter = function() {
                         this.style.background = 'var(--accent-blue)';
@@ -1993,7 +2024,7 @@
                         }
                     }
                     ;
-                    btnContainer.insertBefore(unpackBtn, saveBtn);
+                    progressBox.appendChild(unpackBtn);
                 }
             }
 
@@ -2625,11 +2656,10 @@
                             try {
                                 const bust = `&t=${Date.now()}`;
                                 const url = getTargetUrl(CURRENT_URL) + (CURRENT_URL.includes('?') ? bust : '?cb=1' + bust);
+                                const headers = getRequestHeaders(start, end);
+
                                 const resp = await fetch(url, {
-                                    headers: {
-                                        'Range': `bytes=${start}-${end}`,
-                                        'Cache-Control': 'no-cache'
-                                    },
+                                    headers: headers,
                                     signal: signal
                                 });
 
