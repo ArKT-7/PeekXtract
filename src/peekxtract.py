@@ -2,7 +2,7 @@
 # Copyright (C) 2025-26 https://github.com/ArKT-7/PeekXtract
 #
 
-__version__ = "2.0.3"
+__version__ = "2.0.4"
 
 import requests
 import struct
@@ -826,9 +826,20 @@ def main():
     # print("="*59)
     print()
 
+    export_txt = False
+    url = None
+
     if len(sys.argv) > 1:
-        url = sys.argv[1].strip()
-        print(f"Using ZIP file URL from cli input:: {url}")
+        args = sys.argv[1:]
+        if '--e-txt' in args:
+            export_txt = True
+            args.remove('--e-txt')
+            
+        if args:
+            url = args[0].strip()
+            print(f"Using ZIP file URL from cli input:: {url}")
+            if export_txt:
+                print("Will dump raw file list and exit")
     else:
         url = input("Enter the ZIP file URL: ").strip()
     if not url:
@@ -843,6 +854,18 @@ def main():
         print("\nScanning ZIP file contents...")
         zip_reader.list_files()
         
+        if export_txt and zip_reader.files_info:
+            try:
+                with open("peekxtract_files_dump.txt", "w", encoding="utf-8") as f:
+                    for idx, info in zip_reader.files_info.items():
+                        f.write(f"{info['filename']}\n")
+                print("\nSuccessfully exported raw file list to peekxtract_files_dump.txt")
+                print("Export complete, Exiting script automatcally.")
+                return
+            except Exception as e:
+                print(f"\nFailed to create dump file: {e}")
+                return
+
         if not zip_reader.files_info:
             print("No files found to download.")
             return
